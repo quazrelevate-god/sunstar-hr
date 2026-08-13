@@ -8,8 +8,6 @@ import type { ToastKind } from "../components/Toast";
 const BEDROOM_OPTS = ["3 BR", "4 BR", "5 BR", "6 BR", "Studio"];
 const FLOOR_OPTS = ["SOG", "FF", "SF", "RF", "GF"];
 const STATUS_OPTS = ["DONE", "IN PROGRESS", "PENDING"];
-const CLIENT_OPTS = ["GINCO-DIP", "GINCO-449", "GINCO-MAYDAN", "PIVOT-MASAR"];
-const DESC_OPTS = ["SLAB CONDUITING", "WALL CONDUITING", "WIRING", "FIXTURE INSTALL"];
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
@@ -20,7 +18,7 @@ const EMPTY: WorkEntry = {
   phase: "",
   villa: "",
   bedroom_type: "3 BR",
-  description: "SLAB CONDUITING",
+  description: "",
   floor_type: "SOG",
   start_date: todayISO(),
   end_date: todayISO(),
@@ -35,10 +33,10 @@ const EMPTY: WorkEntry = {
   lighting_point: 0,
   fcu_point: 0,
   db_conduit: 0,
-  client: "GINCO-DIP",
+  client: "",
 };
 
-const LAST_KEY = "sunstar_last_entry";
+const LAST_KEY = "sunstar_last_entry_v2";
 
 export default function EmployeeEntry() {
   const { employee, signOut } = useAuth();
@@ -105,6 +103,8 @@ export default function EmployeeEntry() {
   async function submit() {
     if (!employee) return;
     if (!form.villa.trim()) return flash("Villa is required", "error");
+    if (!form.client.trim()) return flash("Client is required", "error");
+    if (!form.description.trim()) return flash("Description is required", "error");
     if (form.hours <= 0) return flash("Hours must be greater than 0", "error");
     setSaving(true);
 
@@ -194,16 +194,12 @@ export default function EmployeeEntry() {
                 {FLOOR_OPTS.map((o) => <option key={o}>{o}</option>)}
               </select>
             </Field>
-            <Field label="Description">
-              <select value={form.description} onChange={(e) => set("description", e.target.value)} className={cx()}>
-                {DESC_OPTS.map((o) => <option key={o}>{o}</option>)}
-              </select>
+            <Field label="Description *">
+              <input value={form.description} onChange={(e) => set("description", e.target.value)} className={cx()} placeholder="e.g. Slab Conduiting" />
             </Field>
 
-            <Field label="Client">
-              <select value={form.client} onChange={(e) => set("client", e.target.value)} className={cx()}>
-                {CLIENT_OPTS.map((o) => <option key={o}>{o}</option>)}
-              </select>
+            <Field label="Client *">
+              <input value={form.client} onChange={(e) => set("client", e.target.value)} className={cx()} placeholder="Client / project name" />
             </Field>
             <Field label="Status">
               <select value={form.status} onChange={(e) => set("status", e.target.value)} className={cx()}>
