@@ -6,11 +6,15 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
 } from "recharts";
+import AdminEmployees from "./AdminEmployees";
 
-const PIE_COLORS = ["#FFC107", "#1a1a1a", "#F5A800", "#4b5563", "#facc15", "#6b7280"];
+const PIE_COLORS = ["#FFC107", "#1a1a1a", "#F5A800", "#4b5563", "#facc15", "#9ca3af", "#f59e0b", "#374151"];
+
+type Tab = "overview" | "entries" | "employees";
 
 export default function AdminDashboard() {
   const { employee, signOut } = useAuth();
+  const [tab, setTab] = useState<Tab>("overview");
   const [rows, setRows] = useState<WorkEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [clientFilter, setClientFilter] = useState<string>("ALL");
@@ -56,13 +60,12 @@ export default function AdminDashboard() {
   }, [filtered]);
 
   const byClient = useMemo(() => {
-    const map = new Map<string, { client: string; revenue: number; hours: number; cost: number }>();
+    const map = new Map<string, { client: string; Revenue: number; Cost: number }>();
     for (const r of filtered) {
       const key = r.client || "—";
-      const c = map.get(key) ?? { client: key, revenue: 0, hours: 0, cost: 0 };
-      c.revenue += Number(r.total_price || 0);
-      c.hours += Number(r.hours || 0);
-      c.cost += Number(r.cost || 0);
+      const c = map.get(key) ?? { client: key, Revenue: 0, Cost: 0 };
+      c.Revenue += Number(r.total_price || 0);
+      c.Cost += Number(r.cost || 0);
       map.set(key, c);
     }
     return Array.from(map.values());
@@ -74,7 +77,10 @@ export default function AdminDashboard() {
       const k = r.cluster || "—";
       map.set(k, (map.get(k) ?? 0) + Number(r.total_price || 0));
     }
-    return Array.from(map.entries()).map(([cluster, revenue]) => ({ cluster, revenue }));
+    return Array.from(map.entries())
+      .map(([cluster, revenue]) => ({ cluster, revenue }))
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, 8);
   }, [filtered]);
 
   function exportCSV() {
@@ -110,127 +116,187 @@ export default function AdminDashboard() {
             </div>
           </div>
           <div className="flex gap-2">
-            <button onClick={load} className="bg-white/10 hover:bg-white/20 px-4 py-2 rounded-lg text-sm">Refresh</button>
-            <button onClick={exportCSV} className="bg-brand-yellow text-brand-ink font-semibold px-4 py-2 rounded-lg text-sm">Export CSV</button>
+            {tab !== "employees" && (
+              <>
+                <button onClick={load} className="bg-white/10 hover:bg-white/20 px-4 py-2 rounded-lg text-sm">Refresh</button>
+                <button onClick={exportCSV} className="bg-brand-yellow text-brand-ink font-semibold px-4 py-2 rounded-lg text-sm">Export CSV</button>
+              </>
+            )}
             <button onClick={signOut} className="bg-white/10 hover:bg-white/20 px-4 py-2 rounded-lg text-sm">Sign out</button>
           </div>
+        </div>
+
+        {/* Tabs */}
+        <div className="max-w-7xl mx-auto px-6">
+          <nav className="flex gap-1">
+            {(["overview","entries","employees"] as Tab[]).map((t) => (
+              <button key={t} onClick={() => setTab(t)}
+                className={`px-4 py-3 text-sm font-medium border-b-2 -mb-px transition ${
+                  tab === t
+                    ? "border-brand-yellow text-brand-yellow"
+                    : "border-transparent text-gray-400 hover:text-white"
+                }`}>
+                {t === "overview" ? "Overview" : t === "entries" ? "Work Entries" : "Employees"}
+              </button>
+            ))}
+          </nav>
         </div>
       </header>
 
       <main className="max-w-7xl mx-auto p-6 space-y-6">
-        {/* Filters */}
-        <div className="bg-white rounded-2xl p-4 shadow-sm flex flex-wrap gap-3 items-center">
-          <input
-            placeholder="Search villa, cluster, phase, employee…"
-            value={q} onChange={(e) => setQ(e.target.value)}
-            className="flex-1 min-w-[240px] border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-brand-yellow"
-          />
-          <select value={clientFilter} onChange={(e) => setClientFilter(e.target.value)} className="border rounded-lg px-4 py-2">
-            <option value="ALL">All clients</option>
-            {clients.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
-          <div className="text-sm text-gray-500">{filtered.length} of {rows.length} rows</div>
-        </div>
-
-        {/* Metric cards */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-          <Metric label="Entries" value={metrics.count.toString()} />
-          <Metric label="Total Hours" value={metrics.hours.toFixed(0)} />
-          <Metric label="Revenue" value={`AED ${metrics.revenue.toLocaleString()}`} accent />
-          <Metric label="Cost" value={`AED ${metrics.cost.toLocaleString()}`} />
-          <Metric
-            label="Profit" value={`AED ${metrics.profit.toLocaleString()}`}
-            tone={metrics.profit >= 0 ? "good" : "bad"}
-          />
-          <Metric label="Avg AED/hr" value={metrics.perHour.toFixed(2)} accent />
-        </div>
-
-        {/* Charts */}
-        <div className="grid lg:grid-cols-2 gap-6">
-          <div className="bg-white rounded-2xl p-5 shadow-sm">
-            <div className="font-bold mb-4">Revenue by Client</div>
-            <div style={{ width: "100%", height: 280 }}>
-              <ResponsiveContainer>
-                <BarChart data={byClient}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="client" />
-                  <YAxis />
-                  <Tooltip />
-                  <Bar dataKey="revenue" fill="#FFC107" />
-                  <Bar dataKey="cost" fill="#1a1a1a" />
-                </BarChart>
-              </ResponsiveContainer>
+        {tab === "employees" ? (
+          <AdminEmployees />
+        ) : (
+          <>
+            {/* Filters (shared by overview + entries) */}
+            <div className="bg-white rounded-2xl p-4 shadow-sm flex flex-wrap gap-3 items-center">
+              <input
+                placeholder="Search villa, cluster, phase, employee…"
+                value={q} onChange={(e) => setQ(e.target.value)}
+                className="flex-1 min-w-[240px] border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-brand-yellow"
+              />
+              <select value={clientFilter} onChange={(e) => setClientFilter(e.target.value)} className="border rounded-lg px-4 py-2">
+                <option value="ALL">All clients</option>
+                {clients.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <div className="text-sm text-gray-500">{filtered.length} of {rows.length} rows</div>
             </div>
-          </div>
 
-          <div className="bg-white rounded-2xl p-5 shadow-sm">
-            <div className="font-bold mb-4">Revenue Share by Cluster</div>
-            <div style={{ width: "100%", height: 280 }}>
-              <ResponsiveContainer>
-                <PieChart>
-                  <Pie data={byCluster} dataKey="revenue" nameKey="cluster" outerRadius={100} label>
-                    {byCluster.map((_, i) => (
-                      <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Legend />
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        </div>
+            {tab === "overview" && (
+              <>
+                {/* Metric cards */}
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                  <Metric label="Entries" value={metrics.count.toString()} />
+                  <Metric label="Total Hours" value={metrics.hours.toFixed(0)} />
+                  <Metric label="Revenue" value={`AED ${metrics.revenue.toLocaleString()}`} accent />
+                  <Metric label="Cost" value={`AED ${metrics.cost.toLocaleString()}`} />
+                  <Metric
+                    label="Profit" value={`AED ${metrics.profit.toLocaleString()}`}
+                    tone={metrics.profit >= 0 ? "good" : "bad"}
+                  />
+                  <Metric label="Avg AED/hr" value={metrics.perHour.toFixed(2)} accent />
+                </div>
 
-        {/* Table */}
-        <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
-          <div className="px-5 py-4 border-b font-bold">All Entries</div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead className="bg-gray-50 text-gray-600 text-xs uppercase">
-                <tr>
-                  {["#","Cluster","Phase","Villa","BR","Desc","Fl","Start","End","Status","Hrs","Price","Cost","AED/hr","P","GI","D","Tel","L","FCU","DB","Client","Employee"].map((h) => (
-                    <th key={h} className="px-3 py-2 text-left whitespace-nowrap">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {loading ? (
-                  <tr><td className="p-6 text-center text-gray-500" colSpan={23}>Loading…</td></tr>
-                ) : filtered.length === 0 ? (
-                  <tr><td className="p-6 text-center text-gray-500" colSpan={23}>No entries.</td></tr>
-                ) : (
-                  filtered.map((r, i) => (
-                    <tr key={r.id} className="border-t hover:bg-brand-yellowSoft">
-                      <td className="px-3 py-2">{i + 1}</td>
-                      <td className="px-3 py-2">{r.cluster}</td>
-                      <td className="px-3 py-2">{r.phase}</td>
-                      <td className="px-3 py-2 font-semibold">{r.villa}</td>
-                      <td className="px-3 py-2">{r.bedroom_type}</td>
-                      <td className="px-3 py-2 whitespace-nowrap">{r.description}</td>
-                      <td className="px-3 py-2">{r.floor_type}</td>
-                      <td className="px-3 py-2">{r.start_date}</td>
-                      <td className="px-3 py-2">{r.end_date}</td>
-                      <td className="px-3 py-2">{r.status}</td>
-                      <td className="px-3 py-2">{r.hours}</td>
-                      <td className="px-3 py-2">{Number(r.total_price).toLocaleString()}</td>
-                      <td className="px-3 py-2">{Number(r.cost).toLocaleString()}</td>
-                      <td className="px-3 py-2 font-bold text-brand-yellowDark">{r.per_hour_ratio}</td>
-                      <td className="px-3 py-2">{r.power_point}</td>
-                      <td className="px-3 py-2">{r.gi_box_nos}</td>
-                      <td className="px-3 py-2">{r.data_point}</td>
-                      <td className="px-3 py-2">{r.telephone_point}</td>
-                      <td className="px-3 py-2">{r.lighting_point}</td>
-                      <td className="px-3 py-2">{r.fcu_point}</td>
-                      <td className="px-3 py-2">{r.db_conduit}</td>
-                      <td className="px-3 py-2">{r.client}</td>
-                      <td className="px-3 py-2 text-xs text-gray-500">{r.employee_name}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
+                {/* Charts */}
+                <div className="grid lg:grid-cols-2 gap-6">
+                  <div className="bg-white rounded-2xl p-5 shadow-sm">
+                    <div className="font-bold mb-2">Revenue vs Cost by Client</div>
+                    <div className="text-xs text-gray-500 mb-4">
+                      Yellow bars are revenue billed; dark bars are internal cost.
+                    </div>
+                    <div style={{ width: "100%", height: 320 }}>
+                      {byClient.length === 0 ? (
+                        <EmptyChart />
+                      ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={byClient} margin={{ top: 10, right: 20, left: 0, bottom: 5 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                            <XAxis dataKey="client" tick={{ fontSize: 12 }} />
+                            <YAxis tick={{ fontSize: 12 }} />
+                            <Tooltip formatter={(v: any) => `AED ${Number(v).toLocaleString()}`} />
+                            <Legend />
+                            <Bar dataKey="Revenue" fill="#FFC107" radius={[6, 6, 0, 0]} isAnimationActive={false} />
+                            <Bar dataKey="Cost" fill="#1a1a1a" radius={[6, 6, 0, 0]} isAnimationActive={false} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="bg-white rounded-2xl p-5 shadow-sm">
+                    <div className="font-bold mb-2">Revenue Share — Top 8 Clusters</div>
+                    <div className="text-xs text-gray-500 mb-4">
+                      Which villa clusters brought in the most revenue.
+                    </div>
+                    <div style={{ width: "100%", height: 320 }}>
+                      {byCluster.length === 0 ? (
+                        <EmptyChart />
+                      ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie
+                              data={byCluster} dataKey="revenue" nameKey="cluster"
+                              cx="50%" cy="50%" outerRadius={90} innerRadius={40}
+                              paddingAngle={2}
+                              label={(e: any) => e.cluster}
+                              isAnimationActive={false}
+                            >
+                              {byCluster.map((_, i) => (
+                                <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                              ))}
+                            </Pie>
+                            <Tooltip formatter={(v: any) => `AED ${Number(v).toLocaleString()}`} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {tab === "entries" && (
+              <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
+                <div className="px-5 py-4 border-b flex items-center justify-between">
+                  <div className="font-bold">Work Entries</div>
+                  <div className="text-sm text-gray-500">Latest first</div>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-gray-50 text-gray-600 text-xs uppercase sticky top-0">
+                      <tr>
+                        {["#","Cluster","Phase","Villa","BR","Desc","Fl","Start","End","Status","Hrs","Price","Cost","AED/hr","P","GI","D","Tel","L","FCU","DB","Client","Employee"].map((h) => (
+                          <th key={h} className="px-3 py-2 text-left whitespace-nowrap">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {loading ? (
+                        <tr><td className="p-6 text-center text-gray-500" colSpan={23}>Loading…</td></tr>
+                      ) : filtered.length === 0 ? (
+                        <tr><td className="p-6 text-center text-gray-500" colSpan={23}>No entries.</td></tr>
+                      ) : (
+                        filtered.map((r, i) => (
+                          <tr key={r.id} className="border-t hover:bg-brand-yellowSoft">
+                            <td className="px-3 py-2 text-gray-400">{i + 1}</td>
+                            <td className="px-3 py-2">{r.cluster}</td>
+                            <td className="px-3 py-2">{r.phase}</td>
+                            <td className="px-3 py-2 font-semibold">{r.villa}</td>
+                            <td className="px-3 py-2">{r.bedroom_type}</td>
+                            <td className="px-3 py-2 whitespace-nowrap">{r.description}</td>
+                            <td className="px-3 py-2">{r.floor_type}</td>
+                            <td className="px-3 py-2 text-xs text-gray-500">{r.start_date ?? ""}</td>
+                            <td className="px-3 py-2 text-xs text-gray-500">{r.end_date ?? ""}</td>
+                            <td className="px-3 py-2">
+                              <span className={`text-xs px-2 py-0.5 rounded-full ${
+                                r.status === "DONE" ? "bg-green-100 text-green-800" :
+                                r.status === "IN PROGRESS" ? "bg-amber-100 text-amber-800" :
+                                "bg-gray-100 text-gray-700"
+                              }`}>{r.status}</span>
+                            </td>
+                            <td className="px-3 py-2">{r.hours}</td>
+                            <td className="px-3 py-2">{Number(r.total_price).toLocaleString()}</td>
+                            <td className="px-3 py-2">{Number(r.cost).toLocaleString()}</td>
+                            <td className="px-3 py-2 font-bold text-brand-yellowDark">{r.per_hour_ratio}</td>
+                            <td className="px-3 py-2">{r.power_point}</td>
+                            <td className="px-3 py-2">{r.gi_box_nos}</td>
+                            <td className="px-3 py-2">{r.data_point}</td>
+                            <td className="px-3 py-2">{r.telephone_point}</td>
+                            <td className="px-3 py-2">{r.lighting_point}</td>
+                            <td className="px-3 py-2">{r.fcu_point}</td>
+                            <td className="px-3 py-2">{r.db_conduit}</td>
+                            <td className="px-3 py-2">{r.client}</td>
+                            <td className="px-3 py-2 text-xs text-gray-500">{r.employee_name}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </main>
     </div>
   );
@@ -249,7 +315,18 @@ function Metric({
   return (
     <div className={`rounded-2xl p-4 shadow-sm ${cls}`}>
       <div className="text-xs uppercase tracking-wide opacity-70">{label}</div>
-      <div className="text-2xl font-bold mt-1">{value}</div>
+      <div className="text-2xl font-bold mt-1 truncate">{value}</div>
     </div>
   );
 }
+
+function EmptyChart() {
+  return (
+    <div className="h-full flex items-center justify-center text-sm text-gray-400 border-2 border-dashed rounded-xl">
+      No data for the current filter
+    </div>
+  );
+}
+
+// Legend imported but only referenced within JSX; keep for tree-shake
+void Legend;

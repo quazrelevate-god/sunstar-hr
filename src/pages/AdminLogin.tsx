@@ -5,7 +5,7 @@ import { useAuth } from "../lib/auth";
 export default function AdminLogin() {
   const { signIn } = useAuth();
   const nav = useNavigate();
-  const [email, setEmail] = useState("admin@sunstar.test");
+  const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("admin123");
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -14,7 +14,7 @@ export default function AdminLogin() {
     e.preventDefault();
     setBusy(true);
     setErr(null);
-    const { error } = await signIn(email.trim(), password);
+    const { error } = await signIn(username.trim(), password);
     setBusy(false);
     if (error) return setErr(error);
     nav("/admin", { replace: true });
@@ -34,11 +34,13 @@ export default function AdminLogin() {
 
         <form onSubmit={submit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium mb-1">Email</label>
+            <label className="block text-sm font-medium mb-1">Username</label>
             <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              type="text"
+              autoComplete="username"
+              autoCapitalize="none"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
               className="w-full border rounded-xl px-4 py-3 focus:outline-none focus:ring-4 focus:ring-brand-yellow/30 focus:border-brand-yellow"
               required
             />
@@ -47,13 +49,14 @@ export default function AdminLogin() {
             <label className="block text-sm font-medium mb-1">Password</label>
             <input
               type="password"
+              autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full border rounded-xl px-4 py-3 focus:outline-none focus:ring-4 focus:ring-brand-yellow/30 focus:border-brand-yellow"
               required
             />
           </div>
-          {err && <div className="text-red-600 text-sm">{err}</div>}
+          {err && <div className="text-red-600 text-sm bg-red-50 border border-red-200 rounded-lg p-3">{err}</div>}
           <button
             disabled={busy}
             className="w-full bg-brand-ink hover:bg-black disabled:opacity-50 text-brand-yellow font-bold rounded-xl py-4 text-lg shadow"
@@ -63,7 +66,7 @@ export default function AdminLogin() {
         </form>
 
         <div className="mt-6 text-xs text-gray-500 bg-gray-50 rounded-lg p-3">
-          <b>Demo:</b> admin@sunstar.test / admin123
+          <b>Demo:</b> admin / admin123
         </div>
       </div>
     </div>
