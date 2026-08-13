@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../lib/auth";
 import { supabase } from "../lib/supabase";
 import type { WorkEntry } from "../lib/supabase";
+import { Toast } from "../components/Toast";
+import type { ToastKind } from "../components/Toast";
 
 const BEDROOM_OPTS = ["3 BR", "4 BR", "5 BR", "6 BR", "Studio"];
 const FLOOR_OPTS = ["SOG", "FF", "SF", "RF", "GF"];
@@ -51,8 +53,12 @@ export default function EmployeeEntry() {
     return EMPTY;
   });
   const [saving, setSaving] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ msg: string; kind: ToastKind } | null>(null);
   const [recent, setRecent] = useState<WorkEntry[]>([]);
+  const flash = (msg: string, kind: ToastKind = "info") => {
+    setToast({ msg, kind });
+    setTimeout(() => setToast(null), 3500);
+  };
 
   const perHour = useMemo(() => {
     if (!form.hours || form.hours <= 0) return 0;
@@ -98,8 +104,8 @@ export default function EmployeeEntry() {
 
   async function submit() {
     if (!employee) return;
-    if (!form.villa.trim()) return setToast("Villa is required");
-    if (form.hours <= 0) return setToast("Hours must be greater than 0");
+    if (!form.villa.trim()) return flash("Villa is required", "error");
+    if (form.hours <= 0) return flash("Hours must be greater than 0", "error");
     setSaving(true);
 
     const payload = {
@@ -107,12 +113,11 @@ export default function EmployeeEntry() {
       employee_id: employee.id,
       employee_name: employee.full_name,
     };
-    // strip generated field
     delete (payload as any).per_hour_ratio;
 
     const { error } = await supabase.from("sunstar_work_entries").insert(payload);
     setSaving(false);
-    if (error) return setToast("Error: " + error.message);
+    if (error) return flash(error.message, "error");
 
     localStorage.setItem(
       LAST_KEY,
@@ -125,11 +130,12 @@ export default function EmployeeEntry() {
         bedroom_type: form.bedroom_type,
       })
     );
-    setToast(`Saved · ${form.villa} · AED ${perHour}/hr`);
+    flash(`Saved · Villa ${form.villa} · AED ${perHour}/hr`, "success");
+    const savedVilla = form.villa;
     reset(true);
     loadRecent();
     window.scrollTo({ top: 0, behavior: "smooth" });
-    setTimeout(() => setToast(null), 3500);
+    void savedVilla;
   }
 
   return (
@@ -155,11 +161,7 @@ export default function EmployeeEntry() {
         </div>
       </header>
 
-      {toast && (
-        <div className="fixed top-20 left-1/2 -translate-x-1/2 bg-brand-ink text-brand-yellow px-6 py-3 rounded-full shadow-lg z-50 font-medium">
-          {toast}
-        </div>
-      )}
+      {toast && <Toast msg={toast.msg} kind={toast.kind} />}
 
       <main className="max-w-6xl mx-auto p-4 md:p-6 grid md:grid-cols-3 gap-6">
         {/* Form */}

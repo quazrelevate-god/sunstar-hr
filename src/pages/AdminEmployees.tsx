@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
+import { Toast } from "../components/Toast";
+import type { ToastKind } from "../components/Toast";
 
 type Emp = {
   id: string;
@@ -39,7 +41,7 @@ export default function AdminEmployees() {
   const [rows, setRows] = useState<Emp[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ msg: string; kind: ToastKind } | null>(null);
 
   // Create form
   const [showForm, setShowForm] = useState(false);
@@ -71,8 +73,8 @@ export default function AdminEmployees() {
 
   useEffect(() => { load(); }, []);
 
-  function flash(msg: string) {
-    setToast(msg);
+  function flash(msg: string, kind: ToastKind = "info") {
+    setToast({ msg, kind });
     setTimeout(() => setToast(null), 3200);
   }
 
@@ -84,7 +86,7 @@ export default function AdminEmployees() {
         username: fUsername, password: fPassword,
         full_name: fFullName, employee_code: fCode, role: fRole,
       });
-      flash(`Created @${fUsername} (${fRole})`);
+      flash(`Created ${fFullName} (@${fUsername})`, "success");
       setFUsername(""); setFPassword(""); setFFullName(""); setFCode(""); setFRole("employee");
       setShowForm(false);
       load();
@@ -97,7 +99,7 @@ export default function AdminEmployees() {
     setDeleting(true); setErr(null);
     try {
       await call("delete", { employee_id: confirmDel.id });
-      flash(`Deleted ${confirmDel.full_name}`);
+      flash(`Deleted ${confirmDel.full_name}`, "success");
       setConfirmDel(null);
       load();
     } catch (e: any) { setErr(e.message); }
@@ -109,7 +111,7 @@ export default function AdminEmployees() {
     setResetting(true); setErr(null);
     try {
       await call("reset_password", { employee_id: resetFor.id, password: newPw });
-      flash(`Password reset for ${resetFor.full_name}`);
+      flash(`Password reset for ${resetFor.full_name}`, "success");
       setResetFor(null); setNewPw("");
     } catch (e: any) { setErr(e.message); }
     finally { setResetting(false); }
@@ -117,11 +119,7 @@ export default function AdminEmployees() {
 
   return (
     <div className="space-y-4">
-      {toast && (
-        <div className="fixed top-20 left-1/2 -translate-x-1/2 bg-brand-ink text-brand-yellow px-6 py-3 rounded-full shadow-lg z-50 font-medium">
-          {toast}
-        </div>
-      )}
+      {toast && <Toast msg={toast.msg} kind={toast.kind} />}
 
       <div className="bg-white rounded-2xl p-5 shadow-sm flex items-center justify-between">
         <div>
@@ -144,9 +142,12 @@ export default function AdminEmployees() {
         <form onSubmit={submitCreate} className="bg-white rounded-2xl p-5 shadow-sm grid md:grid-cols-3 gap-3">
           <Field label="Username *">
             <input required minLength={3} value={fUsername}
-              onChange={(e) => setFUsername(e.target.value.toLowerCase())}
+              onChange={(e) => setFUsername(e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ""))}
               placeholder="e.g. ravi.k"
               className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-yellow" />
+            {fUsername && <div className="text-[11px] text-gray-500 mt-1">
+              Login: <b>{fUsername}</b> · Password shared separately
+            </div>}
           </Field>
           <Field label="Password *">
             <input required type="text" minLength={6} value={fPassword}
