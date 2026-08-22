@@ -13,6 +13,7 @@ export default {
       },
       fontFamily: {
         sans: ["Inter", "system-ui", "sans-serif"],
+        serif: ["Fraunces", "ui-serif", "Georgia", "serif"],
       },
     },
   },

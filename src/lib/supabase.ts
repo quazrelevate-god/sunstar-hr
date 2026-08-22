@@ -7,10 +7,18 @@ export const supabase = createClient(url, key, {
   auth: { persistSession: true, autoRefreshToken: true },
 });
 
+export type EntryState = "AWAITING_ACTUAL" | "AWAITING_PRICE" | "FINALIZED";
+
 export type WorkEntry = {
   id?: string;
+  state: EntryState;
   employee_id?: string | null;
   employee_name?: string | null;
+  created_by_id?: string | null;
+  actual_by_id?: string | null;
+  priced_by_id?: string | null;
+
+  // Identifiers (set at morning entry)
   cluster: string;
   phase: string;
   villa: string;
@@ -20,10 +28,15 @@ export type WorkEntry = {
   start_date: string | null;
   end_date: string | null;
   status: string;
-  hours: number;
-  total_price: number;
-  cost: number;
-  per_hour_ratio?: number;
+  client: string;
+
+  // Target hours (morning; only admin can change later)
+  target_hours: number | null;
+
+  // Actual hours (end-of-day)
+  hours: number | null;
+
+  // Point counts (end-of-day)
   power_point: number;
   gi_box_nos: number;
   data_point: number;
@@ -31,7 +44,11 @@ export type WorkEntry = {
   lighting_point: number;
   fcu_point: number;
   db_conduit: number;
-  client: string;
+
+  // Price (admin)
+  total_price: number | null;
+
+  per_hour_ratio?: number | null;
   created_at?: string;
 };
 
