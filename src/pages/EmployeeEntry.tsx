@@ -112,6 +112,16 @@ function QueueTab({ flash }: { flash: (m: string, k?: ToastKind) => void }) {
   }
   useEffect(() => {
     load();
+    const ch = supabase
+      .channel("work-entries-live-employee")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "sunstar_work_entries" },
+        () => load(),
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function del(id: string) {

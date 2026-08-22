@@ -9,6 +9,29 @@ export const supabase = createClient(url, key, {
 
 export type EntryState = "AWAITING_ACTUAL" | "AWAITING_PRICE" | "FINALIZED";
 
+/** column key of sunstar_work_entries that a saved filter can target */
+export type FilterCol =
+  | "cluster" | "phase" | "villa" | "bedroom_type" | "floor_type"
+  | "description" | "client" | "status"
+  | "start_date" | "end_date"
+  | "hours" | "target_hours" | "total_price" | "per_hour_ratio";
+
+export type Condition =
+  | { col: FilterCol; op: "equals";   value: string | number }
+  | { col: FilterCol; op: "in";       values: (string | number)[] }
+  | { col: FilterCol; op: "contains"; value: string }
+  | { col: FilterCol; op: "between";  from: string | number; to: string | number }
+  | { col: FilterCol; op: "gt" | "lt"; value: number };
+
+export type SavedFilter = {
+  id?: string;
+  name: string;
+  conditions: Condition[];
+  created_by_id?: string | null;
+  created_at?: string;
+  updated_at?: string;
+};
+
 export type WorkEntry = {
   id?: string;
   state: EntryState;

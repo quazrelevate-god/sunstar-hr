@@ -2,23 +2,18 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import type { WorkEntry, EntryState } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend,
-} from "recharts";
 import AdminEmployees from "./AdminEmployees";
+import AdminFinalized from "./AdminFinalized";
 import { StateBadge, relativeAgo } from "../components/StateBadge";
 import { Toast } from "../components/Toast";
 import type { ToastKind } from "../components/Toast";
 
-const PIE_COLORS = ["#FFC107", "#1a1a1a", "#F5A800", "#4b5563", "#facc15", "#9ca3af", "#f59e0b", "#374151"];
-
-type Tab = "overview" | "entries" | "employees";
+type Tab = "queue" | "finalized" | "employees";
 type QFilter = "ALL" | EntryState;
 
 export default function AdminDashboard() {
   const { employee, signOut } = useAuth();
-  const [tab, setTab] = useState<Tab>("overview");
+  const [tab, setTab] = useState<Tab>("queue");
   const [rows, setRows] = useState<WorkEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<{ msg: string; kind: ToastKind } | null>(null);
@@ -38,34 +33,23 @@ export default function AdminDashboard() {
     setLoading(false);
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    // Realtime subscription — any change to work entries updates all open sessions
+    const ch = supabase
+      .channel("work-entries-live-admin")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "sunstar_work_entries" },
+        () => load()
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const finalized = useMemo(() => rows.filter((r) => r.state === "FINALIZED"), [rows]);
   const queue = useMemo(() => rows.filter((r) => r.state !== "FINALIZED"), [rows]);
-
-  function exportCSV() {
-    const cols = [
-      "S.No","State","Cluster","Phase","Villa","Bedroom","Description","Floor","Start","End","Status",
-      "TargetHrs","ActualHrs","TotalPrice","PerHour","Power","GIBox","Data","Telephone","Lighting","FCU","DBConduit","Client","Employee"
-    ];
-    const lines = [cols.join(",")];
-    finalized.forEach((r, i) => {
-      lines.push([
-        i + 1, r.state, r.cluster, r.phase, r.villa, r.bedroom_type, r.description, r.floor_type,
-        r.start_date ?? "", r.end_date ?? "", r.status, r.target_hours ?? "", r.hours ?? "",
-        r.total_price ?? "", r.per_hour_ratio ?? "", r.power_point, r.gi_box_nos,
-        r.data_point, r.telephone_point, r.lighting_point, r.fcu_point, r.db_conduit,
-        r.client ?? "", r.employee_name ?? ""
-      ].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","));
-    });
-    const blob = new Blob([lines.join("\n")], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `sunstar_finalized_${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -80,16 +64,13 @@ export default function AdminDashboard() {
           </div>
           <div className="flex gap-2">
             <button onClick={load} className="bg-white/10 hover:bg-white/20 px-4 py-2 rounded-lg text-sm">Refresh</button>
-            {tab !== "employees" && (
-              <button onClick={exportCSV} className="bg-brand-yellow text-brand-ink font-semibold px-4 py-2 rounded-lg text-sm">Export CSV</button>
-            )}
             <button onClick={signOut} className="bg-white/10 hover:bg-white/20 px-4 py-2 rounded-lg text-sm">Sign out</button>
           </div>
         </div>
 
         <div className="max-w-[1400px] mx-auto px-6">
           <nav className="flex gap-1">
-            {(["overview", "entries", "employees"] as Tab[]).map((t) => (
+            {(["queue", "finalized", "employees"] as Tab[]).map((t) => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
@@ -99,7 +80,9 @@ export default function AdminDashboard() {
                     : "border-transparent text-gray-400 hover:text-white"
                 }`}
               >
-                {t === "overview" ? "Overview & Queue" : t === "entries" ? "Finalized Entries" : "Employees"}
+                {t === "queue" ? `Queue${queue.length ? ` (${queue.length})` : ""}`
+                 : t === "finalized" ? "Finalized Entries"
+                 : "Employees"}
               </button>
             ))}
           </nav>
@@ -110,154 +93,17 @@ export default function AdminDashboard() {
 
       <main className="max-w-[1400px] mx-auto p-6">
         {tab === "employees" && <AdminEmployees />}
-        {tab === "overview" && (
-          <OverviewAndQueue
-            finalized={finalized}
-            queue={queue}
-            loading={loading}
-            reload={load}
-            flash={flash}
-          />
+        {tab === "queue" && (
+          <QueuePanel rows={queue} loading={loading} reload={load} flash={flash} />
         )}
-        {tab === "entries" && <FinalizedEntries rows={finalized} loading={loading} />}
+        {tab === "finalized" && <AdminFinalized finalized={finalized} />}
       </main>
     </div>
   );
 }
 
 /* ==============================
-   OVERVIEW + QUEUE side-by-side
-   ============================== */
-function OverviewAndQueue({
-  finalized, queue, loading, reload, flash,
-}: {
-  finalized: WorkEntry[]; queue: WorkEntry[]; loading: boolean; reload: () => void;
-  flash: (m: string, k?: ToastKind) => void;
-}) {
-  const metrics = useMemo(() => {
-    const hours = finalized.reduce((s, r) => s + Number(r.hours || 0), 0);
-    const revenue = finalized.reduce((s, r) => s + Number(r.total_price || 0), 0);
-    const perHour = hours > 0 ? revenue / hours : 0;
-    return { hours, revenue, perHour, count: finalized.length };
-  }, [finalized]);
-
-  const byClient = useMemo(() => {
-    const map = new Map<string, { client: string; Revenue: number }>();
-    for (const r of finalized) {
-      const key = r.client || "—";
-      const c = map.get(key) ?? { client: key, Revenue: 0 };
-      c.Revenue += Number(r.total_price || 0);
-      map.set(key, c);
-    }
-    return Array.from(map.values());
-  }, [finalized]);
-
-  const byCluster = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const r of finalized) {
-      const k = r.cluster || "—";
-      map.set(k, (map.get(k) ?? 0) + Number(r.total_price || 0));
-    }
-    return Array.from(map.entries())
-      .map(([cluster, revenue]) => ({ cluster, revenue }))
-      .sort((a, b) => b.revenue - a.revenue)
-      .slice(0, 8);
-  }, [finalized]);
-
-  return (
-    <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
-      {/* LEFT: Queue */}
-      <section className="xl:col-span-3 space-y-4">
-        <QueuePanel rows={queue} loading={loading} reload={reload} flash={flash} />
-      </section>
-
-      {/* RIGHT: Metrics */}
-      <section className="xl:col-span-2 space-y-4">
-        <MetricCards metrics={metrics} />
-        <ChartCard title="Revenue by Client">
-          {byClient.length === 0 ? (
-            <EmptyChart />
-          ) : (
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={byClient} margin={{ top: 10, right: 12, left: 0, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis dataKey="client" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 11 }} />
-                <Tooltip formatter={(v: any) => `AED ${Number(v).toLocaleString()}`} />
-                <Bar dataKey="Revenue" fill="#FFC107" radius={[6, 6, 0, 0]} isAnimationActive={false} />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </ChartCard>
-        <ChartCard title="Revenue share — top 8 clusters">
-          {byCluster.length === 0 ? (
-            <EmptyChart />
-          ) : (
-            <ResponsiveContainer width="100%" height={240}>
-              <PieChart>
-                <Pie
-                  data={byCluster} dataKey="revenue" nameKey="cluster"
-                  cx="50%" cy="50%" outerRadius={80} innerRadius={40}
-                  paddingAngle={2}
-                  label={(e: any) => e.cluster}
-                  isAnimationActive={false}
-                >
-                  {byCluster.map((_, i) => (
-                    <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(v: any) => `AED ${Number(v).toLocaleString()}`} />
-              </PieChart>
-            </ResponsiveContainer>
-          )}
-        </ChartCard>
-      </section>
-    </div>
-  );
-}
-
-/* ==============================
-   METRICS CARDS
-   ============================== */
-function MetricCards({ metrics }: { metrics: { hours: number; revenue: number; perHour: number; count: number } }) {
-  return (
-    <div className="grid grid-cols-2 gap-3">
-      <Metric label="Finalized" value={metrics.count.toString()} />
-      <Metric label="Total Hours" value={metrics.hours.toFixed(0)} />
-      <Metric label="Revenue" value={`AED ${metrics.revenue.toLocaleString()}`} accent />
-      <Metric label="Avg AED/hr" value={metrics.perHour.toFixed(2)} accent />
-    </div>
-  );
-}
-
-function Metric({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
-  return (
-    <div className={`rounded-2xl p-4 shadow-sm ${accent ? "bg-brand-yellow text-brand-ink" : "bg-white border"}`}>
-      <div className="text-[11px] uppercase tracking-wide opacity-70 font-semibold">{label}</div>
-      <div className="text-xl font-bold mt-1 truncate">{value}</div>
-    </div>
-  );
-}
-
-function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="bg-white rounded-2xl p-4 shadow-sm">
-      <div className="font-bold text-sm text-brand-ink mb-3">{title}</div>
-      {children}
-    </div>
-  );
-}
-
-function EmptyChart() {
-  return (
-    <div className="h-[200px] flex items-center justify-center text-sm text-gray-400 border-2 border-dashed rounded-xl">
-      No finalized entries yet
-    </div>
-  );
-}
-
-/* ==============================
-   QUEUE PANEL (admin side)
+   QUEUE PANEL (full-width, no metrics)
    ============================== */
 function QueuePanel({
   rows, loading, reload, flash,
@@ -268,6 +114,7 @@ function QueuePanel({
   const [filter, setFilter] = useState<QFilter>("ALL");
   const [priceRow, setPriceRow] = useState<WorkEntry | null>(null);
   const [editRow, setEditRow] = useState<WorkEntry | null>(null);
+  const [confirmDel, setConfirmDel] = useState<WorkEntry | null>(null);
   const [q, setQ] = useState("");
 
   const shown = rows.filter((r) => {
@@ -292,20 +139,20 @@ function QueuePanel({
     FINALIZED: 0,
   }), [rows]);
 
-  async function del(id: string) {
-    if (!confirm("Delete this entry? It will vanish from all portals.")) return;
-    const { error } = await supabase.from("sunstar_work_entries").delete().eq("id", id);
+  async function del(row: WorkEntry) {
+    const { error } = await supabase.from("sunstar_work_entries").delete().eq("id", row.id!);
+    setConfirmDel(null);
     if (error) return flash(error.message, "error");
-    flash("Deleted", "success");
+    flash(`Deleted Villa ${row.villa}`, "success");
     reload();
   }
 
   return (
     <>
-      <div className="bg-white rounded-2xl shadow-sm p-5 space-y-3">
+      <div className="bg-white rounded-2xl shadow-sm p-5 space-y-3 mb-4">
         <div className="flex items-center justify-between">
           <div>
-            <div className="font-bold text-brand-ink text-lg">Live Queue</div>
+            <div className="font-bold text-brand-ink text-lg font-serif">Live Queue</div>
             <div className="text-xs text-gray-500">Everything not yet finalized</div>
           </div>
           <div className="text-xs text-gray-400">{shown.length} of {rows.length}</div>
@@ -318,7 +165,7 @@ function QueuePanel({
           <input
             value={q} onChange={(e) => setQ(e.target.value)}
             placeholder="Search villa, cluster, client…"
-            className="ml-auto text-sm border rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-yellow"
+            className="ml-auto text-sm border rounded-lg px-3 py-1.5 min-w-[240px] focus:outline-none focus:ring-2 focus:ring-brand-yellow"
           />
         </div>
       </div>
@@ -334,8 +181,8 @@ function QueuePanel({
           </div>
         ) : (
           shown.map((r) => (
-            <div key={r.id} className="bg-white rounded-2xl shadow-sm p-4 hover:shadow transition">
-              <div className="flex items-start gap-3">
+            <div key={r.id} className="bg-white rounded-2xl shadow-sm p-4 md:p-5 hover:shadow transition">
+              <div className="flex items-start gap-4">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <div className="font-bold text-brand-ink">Villa {r.villa}</div>
@@ -356,24 +203,24 @@ function QueuePanel({
                   </div>
                 </div>
 
-                <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                <div className="flex flex-col md:flex-row items-stretch md:items-center gap-2 flex-shrink-0">
                   {r.state === "AWAITING_PRICE" && (
                     <button
                       onClick={() => setPriceRow(r)}
-                      className="bg-brand-yellow hover:bg-brand-yellowDark text-brand-ink font-bold px-3 py-1.5 rounded-lg text-sm"
+                      className="bg-brand-yellow hover:bg-brand-yellowDark text-brand-ink font-bold px-4 py-2 rounded-lg text-sm shadow"
                     >
                       Set price →
                     </button>
                   )}
                   <button
                     onClick={() => setEditRow(r)}
-                    className="text-brand-ink text-xs hover:underline"
+                    className="border border-brand-ink text-brand-ink hover:bg-brand-ink hover:text-brand-yellow font-semibold px-4 py-2 rounded-lg text-sm transition"
                   >
                     Edit
                   </button>
                   <button
-                    onClick={() => del(r.id!)}
-                    className="text-red-600 text-xs hover:underline"
+                    onClick={() => setConfirmDel(r)}
+                    className="border border-red-500 text-red-600 hover:bg-red-600 hover:text-white font-semibold px-4 py-2 rounded-lg text-sm transition"
                   >
                     Delete
                   </button>
@@ -399,6 +246,19 @@ function QueuePanel({
           onDone={() => { setEditRow(null); reload(); flash("Updated", "success"); }}
           flash={flash}
         />
+      )}
+      {confirmDel && (
+        <Modal onClose={() => setConfirmDel(null)}>
+          <div className="text-lg font-bold text-brand-ink mb-2">Delete Villa {confirmDel.villa}?</div>
+          <div className="text-sm text-gray-600 mb-5">
+            This entry will vanish from all portals. This cannot be undone.
+          </div>
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setConfirmDel(null)} className="px-4 py-2 rounded-lg border">Cancel</button>
+            <button onClick={() => del(confirmDel)}
+              className="px-4 py-2 rounded-lg bg-red-600 text-white font-bold">Delete</button>
+          </div>
+        </Modal>
       )}
     </>
   );
@@ -433,6 +293,14 @@ function PriceModal({
   const [saving, setSaving] = useState(false);
   const perHour = price && row.hours ? (+price / row.hours).toFixed(2) : "—";
 
+  // Rate tone preview
+  const previewClass = (() => {
+    if (!price || !row.hours || row.target_hours == null) return "bg-gray-100 text-gray-700";
+    if (row.hours < row.target_hours) return "bg-green-100 text-green-800";
+    if (row.hours > row.target_hours) return "bg-red-100 text-red-800";
+    return "bg-amber-100 text-amber-800";
+  })();
+
   async function submit() {
     if (!price || +price <= 0) return flash("Enter a valid price", "error");
     setSaving(true);
@@ -460,7 +328,7 @@ function PriceModal({
           className="w-full border rounded-xl px-4 py-3 font-semibold focus:outline-none focus:ring-4 focus:ring-brand-yellow/30 focus:border-brand-yellow"
         />
       </label>
-      <div className="bg-brand-yellowSoft rounded-xl p-3 mb-4 text-sm text-brand-ink flex justify-between">
+      <div className={`rounded-xl p-3 mb-4 text-sm flex justify-between font-semibold ${previewClass}`}>
         <span>Live per-hour rate</span>
         <b>AED {perHour}/hr</b>
       </div>
@@ -534,75 +402,3 @@ function Modal({ children, onClose }: { children: React.ReactNode; onClose: () =
     </div>
   );
 }
-
-/* ==============================
-   FINALIZED ENTRIES TABLE
-   ============================== */
-function FinalizedEntries({ rows, loading }: { rows: WorkEntry[]; loading: boolean }) {
-  const [q, setQ] = useState("");
-  const shown = rows.filter((r) => {
-    if (!q) return true;
-    const s = q.toLowerCase();
-    return `${r.villa}${r.cluster}${r.phase}${r.client}${r.employee_name}`.toLowerCase().includes(s);
-  });
-  return (
-    <div className="space-y-4">
-      <div className="bg-white rounded-2xl p-4 shadow-sm">
-        <input
-          value={q} onChange={(e) => setQ(e.target.value)}
-          placeholder="Search villa, cluster, client…"
-          className="w-full border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-brand-yellow"
-        />
-      </div>
-      <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead className="bg-gray-50 text-gray-600 text-xs uppercase">
-              <tr>
-                {["#","Cluster","Phase","Villa","BR","Desc","Fl","Start","End","Target","Actual","Price","AED/hr","P","GI","D","Tel","L","FCU","DB","Client","Employee"].map((h) => (
-                  <th key={h} className="px-3 py-2 text-left whitespace-nowrap">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr><td className="p-6 text-center text-gray-500" colSpan={22}>Loading…</td></tr>
-              ) : shown.length === 0 ? (
-                <tr><td className="p-10 text-center text-gray-400" colSpan={22}>No finalized entries yet.</td></tr>
-              ) : (
-                shown.map((r, i) => (
-                  <tr key={r.id} className="border-t hover:bg-brand-yellowSoft">
-                    <td className="px-3 py-2 text-gray-400">{i + 1}</td>
-                    <td className="px-3 py-2">{r.cluster}</td>
-                    <td className="px-3 py-2">{r.phase}</td>
-                    <td className="px-3 py-2 font-semibold">{r.villa}</td>
-                    <td className="px-3 py-2">{r.bedroom_type}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">{r.description}</td>
-                    <td className="px-3 py-2">{r.floor_type}</td>
-                    <td className="px-3 py-2 text-xs text-gray-500">{r.start_date ?? ""}</td>
-                    <td className="px-3 py-2 text-xs text-gray-500">{r.end_date ?? ""}</td>
-                    <td className="px-3 py-2">{r.target_hours ?? ""}</td>
-                    <td className="px-3 py-2">{r.hours ?? ""}</td>
-                    <td className="px-3 py-2">{r.total_price != null ? Number(r.total_price).toLocaleString() : ""}</td>
-                    <td className="px-3 py-2 font-bold text-brand-yellowDark">{r.per_hour_ratio ?? ""}</td>
-                    <td className="px-3 py-2">{r.power_point}</td>
-                    <td className="px-3 py-2">{r.gi_box_nos}</td>
-                    <td className="px-3 py-2">{r.data_point}</td>
-                    <td className="px-3 py-2">{r.telephone_point}</td>
-                    <td className="px-3 py-2">{r.lighting_point}</td>
-                    <td className="px-3 py-2">{r.fcu_point}</td>
-                    <td className="px-3 py-2">{r.db_conduit}</td>
-                    <td className="px-3 py-2">{r.client}</td>
-                    <td className="px-3 py-2 text-xs text-gray-500">{r.employee_name}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-void Legend;
