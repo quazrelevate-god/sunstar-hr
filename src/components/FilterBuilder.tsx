@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { Condition, FilterCol } from "../lib/supabase";
 
 const COLS: { key: FilterCol; label: string; kind: "text" | "date" | "number" }[] = [
@@ -51,17 +51,22 @@ export function FilterChip({
 
 export function AddConditionPopover({
   open, onClose, onAdd,
+  optionsByCol,
 }: {
   open: boolean;
   onClose: () => void;
   onAdd: (c: Condition) => void;
+  /** distinct existing values from history, per column — used to populate dropdowns for text cols */
+  optionsByCol: Partial<Record<FilterCol, string[]>>;
 }) {
   const [col, setCol] = useState<FilterCol>("cluster");
   const meta = COLS.find((c) => c.key === col)!;
   const [op, setOp] = useState<Condition["op"]>("equals");
   const [v1, setV1] = useState("");
   const [v2, setV2] = useState("");
-  const [csv, setCsv] = useState(""); // for "in" values
+  const [multi, setMulti] = useState<string[]>([]); // for "in"
+
+  const options = useMemo(() => optionsByCol[col] ?? [], [optionsByCol, col]);
 
   if (!open) return null;
 
@@ -71,9 +76,11 @@ export function AddConditionPopover({
       if (!v1) return;
       cond = { col, op: "equals", value: meta.kind === "number" ? Number(v1) : v1 };
     } else if (op === "in") {
-      const parts = csv.split(",").map((s) => s.trim()).filter(Boolean);
-      if (!parts.length) return;
-      cond = { col, op: "in", values: meta.kind === "number" ? parts.map(Number) : parts };
+      if (!multi.length) return;
+      cond = {
+        col, op: "in",
+        values: meta.kind === "number" ? multi.map(Number) : multi,
+      };
     } else if (op === "contains") {
       if (!v1) return;
       cond = { col, op: "contains", value: v1 };
@@ -101,6 +108,7 @@ export function AddConditionPopover({
   const ops = opsAll.filter((o) => o.kinds.includes(meta.kind));
 
   const inputType = meta.kind === "date" ? "date" : meta.kind === "number" ? "number" : "text";
+  const hasOptions = options.length > 0;
 
   return (
     <div className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4" onClick={onClose}>
@@ -122,7 +130,7 @@ export function AddConditionPopover({
                 if (m.kind === "text") setOp("equals");
                 else if (m.kind === "date") setOp("between");
                 else setOp("equals");
-                setV1(""); setV2(""); setCsv("");
+                setV1(""); setV2(""); setMulti([]);
               }}
               className="w-full border rounded-lg px-3 py-2"
             >
@@ -132,7 +140,7 @@ export function AddConditionPopover({
 
           <label className="block">
             <div className="text-xs font-semibold text-gray-500 mb-1">Operator</div>
-            <select value={op} onChange={(e) => { setOp(e.target.value as any); setV1(""); setV2(""); setCsv(""); }}
+            <select value={op} onChange={(e) => { setOp(e.target.value as any); setV1(""); setV2(""); setMulti([]); }}
               className="w-full border rounded-lg px-3 py-2">
               {ops.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
             </select>
@@ -141,10 +149,19 @@ export function AddConditionPopover({
 
         {op === "in" ? (
           <label className="block">
-            <div className="text-xs font-semibold text-gray-500 mb-1">Values (comma-separated)</div>
-            <input value={csv} onChange={(e) => setCsv(e.target.value)}
-              placeholder="V-4, V-14, V-99"
-              className="w-full border rounded-lg px-3 py-2" />
+            <div className="text-xs font-semibold text-gray-500 mb-1">
+              Values {hasOptions && <span className="text-gray-400 font-normal">· pick from history ({options.length})</span>}
+            </div>
+            {hasOptions ? (
+              <MultiPicker options={options} value={multi} onChange={setMulti} />
+            ) : (
+              <input
+                value={multi.join(",")}
+                onChange={(e) => setMulti(e.target.value.split(",").map((s) => s.trim()).filter(Boolean))}
+                placeholder="V-4, V-14, V-99"
+                className="w-full border rounded-lg px-3 py-2"
+              />
+            )}
           </label>
         ) : op === "between" ? (
           <div className="grid grid-cols-2 gap-3">
@@ -161,9 +178,28 @@ export function AddConditionPopover({
           </div>
         ) : (
           <label className="block">
-            <div className="text-xs font-semibold text-gray-500 mb-1">Value</div>
-            <input type={inputType} value={v1} onChange={(e) => setV1(e.target.value)}
-              className="w-full border rounded-lg px-3 py-2" autoFocus />
+            <div className="text-xs font-semibold text-gray-500 mb-1">
+              Value
+              {op === "equals" && hasOptions && (
+                <span className="text-gray-400 font-normal"> · pick from history ({options.length})</span>
+              )}
+            </div>
+            {op === "equals" && hasOptions ? (
+              <select value={v1} onChange={(e) => setV1(e.target.value)}
+                className="w-full border rounded-lg px-3 py-2" autoFocus>
+                <option value="">— choose —</option>
+                {options.map((o) => <option key={o} value={o}>{o}</option>)}
+              </select>
+            ) : (
+              <input type={inputType} value={v1} onChange={(e) => setV1(e.target.value)}
+                className="w-full border rounded-lg px-3 py-2" autoFocus
+                list={op === "equals" ? undefined : `history-${col}`} />
+            )}
+            {op === "contains" && hasOptions && (
+              <datalist id={`history-${col}`}>
+                {options.map((o) => <option key={o} value={o} />)}
+              </datalist>
+            )}
           </label>
         )}
 
@@ -173,6 +209,45 @@ export function AddConditionPopover({
             className="px-4 py-2 rounded-lg bg-brand-ink text-brand-yellow font-bold">Add</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* Multi-select chip picker for the "is one of" operator */
+function MultiPicker({
+  options, value, onChange,
+}: { options: string[]; value: string[]; onChange: (v: string[]) => void }) {
+  const [q, setQ] = useState("");
+  const filtered = options.filter((o) => o.toLowerCase().includes(q.toLowerCase()));
+  const toggle = (o: string) =>
+    onChange(value.includes(o) ? value.filter((x) => x !== o) : [...value, o]);
+  return (
+    <div className="border rounded-lg">
+      <input
+        value={q} onChange={(e) => setQ(e.target.value)}
+        placeholder="Filter list…"
+        className="w-full px-3 py-2 border-b outline-none rounded-t-lg text-sm"
+      />
+      <div className="max-h-48 overflow-y-auto p-2 space-y-1">
+        {filtered.length === 0 ? (
+          <div className="text-xs text-gray-400 px-2 py-4 text-center">No matches</div>
+        ) : filtered.map((o) => (
+          <label key={o} className="flex items-center gap-2 px-2 py-1 rounded hover:bg-gray-50 cursor-pointer text-sm">
+            <input type="checkbox" checked={value.includes(o)} onChange={() => toggle(o)} />
+            <span>{o}</span>
+          </label>
+        ))}
+      </div>
+      {value.length > 0 && (
+        <div className="border-t p-2 flex flex-wrap gap-1">
+          {value.map((v) => (
+            <span key={v} className="inline-flex items-center gap-1 bg-brand-yellowSoft border border-brand-yellow rounded-full px-2 py-0.5 text-xs">
+              {v}
+              <button onClick={() => toggle(v)} className="text-brand-ink/50 hover:text-brand-ink">×</button>
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

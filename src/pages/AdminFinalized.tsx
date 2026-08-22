@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
-import type { WorkEntry, SavedFilter, Condition } from "../lib/supabase";
+import type { WorkEntry, SavedFilter, Condition, FilterCol } from "../lib/supabase";
 import { passesConditions, rateTone, rateToneClasses } from "../lib/rate";
 import { AddConditionPopover, FilterChip } from "../components/FilterBuilder";
 import { Toast } from "../components/Toast";
@@ -18,8 +18,13 @@ type ActiveView =
   | { kind: "custom" }              // user-built filter, not yet saved
   | { kind: "saved"; filter: SavedFilter };
 
+const TEXT_COLS: FilterCol[] = [
+  "cluster","phase","villa","bedroom_type","floor_type","description","client","status",
+];
+
 export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }) {
   const [views, setViews] = useState<SavedFilter[]>([]);
+  const [optionsByCol, setOptionsByCol] = useState<Partial<Record<FilterCol, string[]>>>({});
   const [active, setActive] = useState<ActiveView>({ kind: "all" });
   const [conds, setConds] = useState<Condition[]>([]);   // editable working set
   const [locked, setLocked] = useState(false);           // true when viewing a saved view (until Edit)
@@ -44,13 +49,39 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
     setViews((data as SavedFilter[]) ?? []);
   }
 
+  // Distinct values from *all* work entries (any state) so dropdowns include
+  // values recorded but not yet finalized.
+  async function loadOptions() {
+    const { data, error } = await supabase
+      .from("sunstar_work_entries")
+      .select(TEXT_COLS.join(","));
+    if (error) return;
+    const acc: Partial<Record<FilterCol, Set<string>>> = {};
+    (data ?? []).forEach((row: any) => {
+      TEXT_COLS.forEach((c) => {
+        const v = row[c];
+        if (v == null || String(v).trim() === "") return;
+        if (!acc[c]) acc[c] = new Set<string>();
+        acc[c]!.add(String(v).trim());
+      });
+    });
+    const out: Partial<Record<FilterCol, string[]>> = {};
+    TEXT_COLS.forEach((c) => {
+      if (acc[c]) out[c] = Array.from(acc[c]!).sort((a, b) => a.localeCompare(b));
+    });
+    setOptionsByCol(out);
+  }
+
   useEffect(() => {
     loadViews();
+    loadOptions();
     const ch = supabase
       .channel("saved-filters-live")
       .on("postgres_changes", { event: "*", schema: "public", table: "sunstar_saved_filters" }, () => loadViews())
+      .on("postgres_changes", { event: "*", schema: "public", table: "sunstar_work_entries" }, () => loadOptions())
       .subscribe();
     return () => { supabase.removeChannel(ch); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Filtered rows drive both metrics + table
@@ -369,6 +400,7 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
         open={adding}
         onClose={() => setAdding(false)}
         onAdd={(c) => setConds((cs) => [...cs, c])}
+        optionsByCol={optionsByCol}
       />
 
       {/* Edit filter confirm */}
