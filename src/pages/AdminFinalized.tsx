@@ -191,7 +191,7 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
       {toast && <Toast msg={toast.msg} kind={toast.kind} />}
 
       {/* THREE-column grid on desktop: [Views | Charts | Table] */}
-      <div className="grid gap-4 h-full grid-cols-1 xl:grid-cols-[220px_minmax(380px,32%)_1fr]">
+      <div className="grid gap-4 h-full grid-cols-1 xl:grid-cols-[220px_minmax(380px,32%)_minmax(0,1fr)]">
         {/* LEFT: Views sidebar (scrolls internally if long) */}
         <aside className="bg-white rounded-2xl shadow-sm p-3 overflow-y-auto">
           <div className="text-xs font-bold text-gray-500 uppercase tracking-wide px-2 mb-2">Views</div>
@@ -232,7 +232,7 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
         </section>
 
         {/* RIGHT: Toolbar + Table — independent scroll */}
-        <section className="flex flex-col min-h-0 gap-4">
+        <section className="flex flex-col min-h-0 min-w-0 gap-4">
           <div className="bg-white rounded-2xl shadow-sm p-4 space-y-3 flex-shrink-0">
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <div>
