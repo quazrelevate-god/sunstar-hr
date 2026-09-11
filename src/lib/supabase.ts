@@ -17,11 +17,11 @@ export type FilterCol =
   | "hours" | "target_hours" | "total_price" | "per_hour_ratio";
 
 export type Condition =
-  | { col: FilterCol; op: "equals";   value: string | number }
-  | { col: FilterCol; op: "in";       values: (string | number)[] }
-  | { col: FilterCol; op: "contains"; value: string }
-  | { col: FilterCol; op: "between";  from: string | number; to: string | number }
-  | { col: FilterCol; op: "gt" | "lt"; value: number };
+  | { col: FilterCol; op: "equals" | "neq";                value: string | number }
+  | { col: FilterCol; op: "in" | "nin";                    values: (string | number)[] }
+  | { col: FilterCol; op: "contains";                      value: string }
+  | { col: FilterCol; op: "between";                       from: string | number; to: string | number }
+  | { col: FilterCol; op: "gt" | "gte" | "lt" | "lte";     value: number | string };
 
 export type SavedFilter = {
   id?: string;
