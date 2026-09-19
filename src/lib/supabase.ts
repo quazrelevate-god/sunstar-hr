@@ -12,9 +12,9 @@ export type EntryState = "AWAITING_ACTUAL" | "AWAITING_PRICE" | "FINALIZED";
 /** column key of sunstar_work_entries that a saved filter can target */
 export type FilterCol =
   | "cluster" | "phase" | "villa" | "bedroom_type" | "floor_type"
-  | "description" | "client" | "status"
+  | "description" | "client" | "status" | "apartment_number"
   | "start_date" | "end_date"
-  | "hours" | "target_hours" | "total_price" | "per_hour_ratio";
+  | "hours" | "target_hours" | "total_price" | "per_hour_ratio" | "total_manpower";
 
 export type Condition =
   | { col: FilterCol; op: "equals" | "neq";                value: string | number }
@@ -53,13 +53,21 @@ export type WorkEntry = {
   status: string;
   client: string;
 
+  // Morning ops (added round 5)
+  apartment_number?: string | null;
+  total_manpower?: number | null;
+  check_in_time?: string | null;     // "HH:MM"
+  check_out_time?: string | null;
+  break_start_time?: string | null;
+  break_end_time?: string | null;
+
   // Target hours (morning; only admin can change later)
   target_hours: number | null;
 
   // Actual hours (end-of-day)
   hours: number | null;
 
-  // Point counts (end-of-day)
+  // Point counts (end-of-day) — power_point label is "Power Socket"
   power_point: number;
   gi_box_nos: number;
   data_point: number;
@@ -68,12 +76,49 @@ export type WorkEntry = {
   fcu_point: number;
   db_conduit: number;
 
+  // Round 5: detailed second-phase point counts
+  gi_conduiting?: number;
+  gi_circular_box?: number;
+  gi_offset?: number;
+  final_fix_switch?: number;
+  final_fix_socket?: number;
+  type_no_1_light?: number;
+  type_no_2_light?: number;
+  type_no_3_light?: number;
+  type_no_4_light?: number;
+  type_no_5_light?: number;
+  type_no_6_light?: number;
+  led_strip_light_meter?: number;
+
   // Price (admin)
   total_price: number | null;
 
   per_hour_ratio?: number | null;
   created_at?: string;
 };
+
+/** Labels for point-count fields — used by both forms and export */
+export const POINT_FIELDS: { key: keyof WorkEntry; label: string; decimal?: boolean }[] = [
+  { key: "power_point",           label: "Power Socket" },
+  { key: "gi_box_nos",            label: "GI Box" },
+  { key: "data_point",            label: "Data" },
+  { key: "telephone_point",       label: "Telephone" },
+  { key: "lighting_point",        label: "Lighting" },
+  { key: "fcu_point",             label: "FCU" },
+  { key: "db_conduit",            label: "DB Conduit" },
+  { key: "gi_conduiting",         label: "GI Conduiting" },
+  { key: "gi_circular_box",       label: "GI-Circular Box" },
+  { key: "gi_offset",             label: "GI-Offset" },
+  { key: "final_fix_switch",      label: "Final Fix Switch" },
+  { key: "final_fix_socket",      label: "Final Fix Socket" },
+  { key: "type_no_1_light",       label: "Type 1 Light" },
+  { key: "type_no_2_light",       label: "Type 2 Light" },
+  { key: "type_no_3_light",       label: "Type 3 Light" },
+  { key: "type_no_4_light",       label: "Type 4 Light" },
+  { key: "type_no_5_light",       label: "Type 5 Light" },
+  { key: "type_no_6_light",       label: "Type 6 Light" },
+  { key: "led_strip_light_meter", label: "LED Strip (m)", decimal: true },
+];
 
 export type Employee = {
   id: string;

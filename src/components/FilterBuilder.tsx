@@ -3,20 +3,22 @@ import type { Condition, FilterCol } from "../lib/supabase";
 import { COLUMN_KIND } from "../lib/rate";
 
 const COLS: { key: FilterCol; label: string }[] = [
-  { key: "cluster",        label: "Cluster" },
-  { key: "phase",          label: "Phase" },
-  { key: "villa",          label: "Villa" },
-  { key: "bedroom_type",   label: "Bedroom" },
-  { key: "floor_type",     label: "Floor" },
-  { key: "description",    label: "Description" },
-  { key: "client",         label: "Client" },
-  { key: "status",         label: "Status" },
-  { key: "start_date",     label: "Start date" },
-  { key: "end_date",       label: "End date" },
-  { key: "hours",          label: "Actual hours" },
-  { key: "target_hours",   label: "Target hours" },
-  { key: "total_price",    label: "Total price" },
-  { key: "per_hour_ratio", label: "AED / hr" },
+  { key: "cluster",          label: "Cluster" },
+  { key: "phase",            label: "Phase" },
+  { key: "villa",            label: "Villa" },
+  { key: "apartment_number", label: "Apartment" },
+  { key: "bedroom_type",     label: "Bedroom" },
+  { key: "floor_type",       label: "Floor" },
+  { key: "description",      label: "Description" },
+  { key: "client",           label: "Client" },
+  { key: "status",           label: "Status" },
+  { key: "start_date",       label: "Start date" },
+  { key: "end_date",         label: "End date" },
+  { key: "total_manpower",   label: "Total manpower" },
+  { key: "hours",            label: "Actual hours" },
+  { key: "target_hours",     label: "Target hours" },
+  { key: "total_price",      label: "Total price" },
+  { key: "per_hour_ratio",   label: "AED / hr" },
 ];
 
 /* Operator labels — different verbiage for dates vs numbers vs text */

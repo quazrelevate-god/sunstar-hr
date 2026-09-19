@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
-import { supabase } from "../lib/supabase";
+import { supabase, POINT_FIELDS } from "../lib/supabase";
 import type { WorkEntry, SavedFilter, Condition, FilterCol } from "../lib/supabase";
 import { passesConditions, rateTone, rateToneClasses } from "../lib/rate";
 import { AddConditionPopover, FilterChip } from "../components/FilterBuilder";
@@ -10,7 +10,7 @@ import type { ToastKind } from "../components/Toast";
 
 const PAGE_SIZE = 50;
 const TEXT_COLS: FilterCol[] = [
-  "cluster","phase","villa","bedroom_type","floor_type","description","client","status",
+  "cluster","phase","villa","bedroom_type","floor_type","description","client","status","apartment_number",
 ];
 
 type ActiveView =
@@ -322,14 +322,14 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
               <table className="min-w-full text-sm">
                 <thead className="bg-gray-50 text-gray-600 text-xs uppercase sticky top-0 z-10">
                   <tr>
-                    {["#","Cluster","Phase","Villa","BR","Desc","Fl","Start","End","Target","Actual","Price","AED/hr","P","GI","D","Tel","L","FCU","DB","Client","Employee"].map((h) => (
+                    {["#","Cluster","Phase","Villa","Apt","BR","Desc","Fl","Start","End","Target","Actual","Price","AED/hr","PS","GI","D","Tel","L","FCU","DB","Client","Employee"].map((h) => (
                       <th key={h} className="px-3 py-2 text-left whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {pageRows.length === 0 ? (
-                    <tr><td className="p-10 text-center text-gray-400" colSpan={22}>No matching entries.</td></tr>
+                    <tr><td className="p-10 text-center text-gray-400" colSpan={23}>No matching entries.</td></tr>
                   ) : pageRows.map((r, i) => {
                     const tone = rateTone(r);
                     return (
@@ -338,6 +338,7 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
                         <td className="px-3 py-2">{r.cluster}</td>
                         <td className="px-3 py-2">{r.phase}</td>
                         <td className="px-3 py-2 font-semibold">{r.villa}</td>
+                        <td className="px-3 py-2 text-xs text-gray-500">{r.apartment_number ?? ""}</td>
                         <td className="px-3 py-2">{r.bedroom_type}</td>
                         <td className="px-3 py-2 whitespace-nowrap">{r.description}</td>
                         <td className="px-3 py-2">{r.floor_type}</td>
@@ -478,19 +479,29 @@ function ConfirmModal({
 /* Export helpers */
 function buildExportData(rows: WorkEntry[]) {
   const headers = [
-    "S.No","State","Cluster","Phase","Villa","Bedroom","Description","Floor","Start Date","End Date","Status",
+    "S.No","State","Cluster","Phase","Villa","Apartment","Bedroom","Description","Floor",
+    "Start Date","End Date","Status","Client","Employee",
+    "Total Manpower","Check-in","Check-out","Break Start","Break End",
     "Target Hours","Actual Hours","Total Price (AED)","AED per Hour",
-    "Power","GI Box","Data","Telephone","Lighting","FCU","DB Conduit","Client","Employee"
+    ...POINT_FIELDS.map((p) => p.label),
   ];
-  const out = rows.map((r, i) => [
-    i + 1, r.state, r.cluster, r.phase, r.villa, r.bedroom_type, r.description, r.floor_type,
-    r.start_date ?? "", r.end_date ?? "", r.status,
-    r.target_hours ?? "", r.hours ?? "",
-    r.total_price != null ? Number(r.total_price) : "",
-    r.per_hour_ratio != null ? Number(r.per_hour_ratio) : "",
-    r.power_point, r.gi_box_nos, r.data_point, r.telephone_point,
-    r.lighting_point, r.fcu_point, r.db_conduit, r.client ?? "", r.employee_name ?? ""
-  ]);
+  const out = rows.map((r, i) => {
+    const base: (string | number)[] = [
+      i + 1, r.state, r.cluster, r.phase, r.villa, r.apartment_number ?? "",
+      r.bedroom_type, r.description, r.floor_type,
+      r.start_date ?? "", r.end_date ?? "", r.status, r.client ?? "", r.employee_name ?? "",
+      r.total_manpower ?? "",
+      (r.check_in_time ?? "").toString().slice(0,5),
+      (r.check_out_time ?? "").toString().slice(0,5),
+      (r.break_start_time ?? "").toString().slice(0,5),
+      (r.break_end_time ?? "").toString().slice(0,5),
+      r.target_hours ?? "", r.hours ?? "",
+      r.total_price != null ? Number(r.total_price) : "",
+      r.per_hour_ratio != null ? Number(r.per_hour_ratio) : "",
+    ];
+    POINT_FIELDS.forEach((p) => base.push(((r as any)[p.key] ?? 0) as number));
+    return base;
+  });
   return { headers, rows: out };
 }
 

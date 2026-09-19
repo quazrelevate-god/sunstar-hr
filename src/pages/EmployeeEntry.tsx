@@ -1,17 +1,22 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../lib/auth";
-import { supabase } from "../lib/supabase";
+import { supabase, POINT_FIELDS } from "../lib/supabase";
 import type { WorkEntry } from "../lib/supabase";
 import { Toast } from "../components/Toast";
 import type { ToastKind } from "../components/Toast";
 import { StateBadge, relativeAgo } from "../components/StateBadge";
 
-const BEDROOM_OPTS = ["3 BR", "4 BR", "5 BR", "6 BR", "Studio"];
-const FLOOR_OPTS = ["SOG", "FF", "SF", "RF", "GF"];
-const STATUS_OPTS = ["DONE", "IN PROGRESS", "PENDING"];
+const BEDROOM_SEED = ["3 BR", "4 BR", "5 BR", "6 BR", "Studio"];
+const FLOOR_SEED   = ["SOG", "FF", "SF", "RF", "GF"];
+const STATUS_OPTS  = ["DONE", "IN PROGRESS", "PENDING"];
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function currentHHMM() {
+  const d = new Date();
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
 const EMPTY_NEW: Partial<WorkEntry> = {
@@ -25,18 +30,67 @@ const EMPTY_NEW: Partial<WorkEntry> = {
   status: "IN PROGRESS",
   client: "",
   target_hours: null,
+  apartment_number: "",
+  total_manpower: null,
+  check_in_time: currentHHMM(),
+  check_out_time: "",
+  break_start_time: "",
+  break_end_time: "",
 };
 
 type Tab = "queue" | "new";
+type SuggestionMap = Partial<Record<string, string[]>>;
 
 export default function EmployeeEntry() {
   const { employee, signOut } = useAuth();
   const [tab, setTab] = useState<Tab>("queue");
   const [toast, setToast] = useState<{ msg: string; kind: ToastKind } | null>(null);
+  const [suggestions, setSuggestions] = useState<SuggestionMap>({});
   const flash = (msg: string, kind: ToastKind = "info") => {
     setToast({ msg, kind });
     setTimeout(() => setToast(null), 3200);
   };
+
+  // Load distinct text-column history for autocomplete
+  async function loadSuggestions() {
+    const cols = ["cluster","phase","villa","bedroom_type","floor_type","description","client","status","apartment_number"] as const;
+    const { data, error } = await supabase.from("sunstar_work_entries").select(cols.join(","));
+    if (error) return;
+    const acc: Record<string, Set<string>> = {};
+    (data ?? []).forEach((row: any) => {
+      cols.forEach((c) => {
+        const v = row[c];
+        if (v == null || String(v).trim() === "") return;
+        (acc[c] ||= new Set()).add(String(v).trim());
+      });
+    });
+    const out: SuggestionMap = {};
+    // Seed bedroom/floor with defaults so first-time users see something
+    (["bedroom_type"] as const).forEach((c) => {
+      if (!acc[c]) acc[c] = new Set();
+      BEDROOM_SEED.forEach((s) => acc[c].add(s));
+    });
+    (["floor_type"] as const).forEach((c) => {
+      if (!acc[c]) acc[c] = new Set();
+      FLOOR_SEED.forEach((s) => acc[c].add(s));
+    });
+    cols.forEach((c) => {
+      if (acc[c]) out[c] = Array.from(acc[c]).sort((a, b) => a.localeCompare(b));
+    });
+    setSuggestions(out);
+  }
+
+  useEffect(() => {
+    loadSuggestions();
+    const ch = supabase
+      .channel("we-suggestions-live")
+      .on("postgres_changes",
+        { event: "*", schema: "public", table: "sunstar_work_entries" },
+        () => loadSuggestions())
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="min-h-screen bg-brand-yellowSoft">
@@ -85,7 +139,9 @@ export default function EmployeeEntry() {
       {toast && <Toast msg={toast.msg} kind={toast.kind} />}
 
       <main className="max-w-6xl mx-auto p-4 md:p-6">
-        {tab === "queue" ? <QueueTab flash={flash} /> : <NewEntryTab flash={flash} onDone={() => setTab("queue")} />}
+        {tab === "queue"
+          ? <QueueTab flash={flash} />
+          : <NewEntryTab flash={flash} onDone={() => setTab("queue")} suggestions={suggestions} />}
       </main>
     </div>
   );
@@ -192,32 +248,33 @@ function QueueRow({
 }) {
   const { employee } = useAuth();
   const [hours, setHours] = useState<number | "">("");
-  const [pp, setPp] = useState(0);
-  const [gi, setGi] = useState(0);
-  const [dp, setDp] = useState(0);
-  const [tel, setTel] = useState(0);
-  const [lt, setLt] = useState(0);
-  const [fc, setFc] = useState(0);
-  const [db, setDb] = useState(0);
+  const [checkOut, setCheckOut] = useState<string>(row.check_out_time ?? "");
+  const [breakStart, setBreakStart] = useState<string>(row.break_start_time ?? "");
+  const [breakEnd, setBreakEnd] = useState<string>(row.break_end_time ?? "");
+  const [points, setPoints] = useState<Record<string, number>>(() => {
+    const init: Record<string, number> = {};
+    POINT_FIELDS.forEach((p) => { init[p.key as string] = 0; });
+    return init;
+  });
   const [saving, setSaving] = useState(false);
+
+  const setPt = (k: string, v: number) => setPoints((p) => ({ ...p, [k]: v }));
 
   async function submit() {
     if (!hours || +hours <= 0) return flash("Enter actual hours (> 0)", "error");
     setSaving(true);
+    const update: any = {
+      hours: +hours,
+      check_out_time: checkOut || null,
+      break_start_time: breakStart || null,
+      break_end_time: breakEnd || null,
+      state: "AWAITING_PRICE",
+      actual_by_id: employee?.id ?? null,
+    };
+    POINT_FIELDS.forEach((p) => { update[p.key as string] = points[p.key as string] ?? 0; });
     const { error } = await supabase
       .from("sunstar_work_entries")
-      .update({
-        hours: +hours,
-        power_point: pp,
-        gi_box_nos: gi,
-        data_point: dp,
-        telephone_point: tel,
-        lighting_point: lt,
-        fcu_point: fc,
-        db_conduit: db,
-        state: "AWAITING_PRICE",
-        actual_by_id: employee?.id ?? null,
-      })
+      .update(update)
       .eq("id", row.id!);
     setSaving(false);
     if (error) return flash(error.message, "error");
@@ -238,9 +295,13 @@ function QueueRow({
           </div>
           <div className="text-sm text-gray-500 mt-0.5 truncate">
             {row.description} · {row.bedroom_type} · {row.floor_type} · Client: {row.client || "—"}
+            {row.apartment_number ? ` · Apt ${row.apartment_number}` : ""}
           </div>
-          <div className="text-xs text-gray-400 mt-1">
-            Target {row.target_hours ?? "—"}h · queued {row.created_at ? relativeAgo(row.created_at) : ""}
+          <div className="text-xs text-gray-400 mt-1 flex gap-3 flex-wrap">
+            <span>Target {row.target_hours ?? "—"}h</span>
+            {row.total_manpower != null && <span>Manpower {row.total_manpower}</span>}
+            {row.check_in_time && <span>In {row.check_in_time.slice(0,5)}</span>}
+            <span>queued {row.created_at ? relativeAgo(row.created_at) : ""}</span>
           </div>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
@@ -263,19 +324,33 @@ function QueueRow({
       {/* Expanded form */}
       {open && (
         <div className="border-t bg-brand-yellowSoft/40 p-5 space-y-4">
-          <div className="grid md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <NumField required label="Actual Hours *" v={hours} on={setHours as any} decimal />
+            <Field label="Check-out">
+              <input type="time" value={checkOut} onChange={(e) => setCheckOut(e.target.value)}
+                className="w-full border rounded-lg px-3 py-2" />
+            </Field>
+            <Field label="Break start">
+              <input type="time" value={breakStart} onChange={(e) => setBreakStart(e.target.value)}
+                className="w-full border rounded-lg px-3 py-2" />
+            </Field>
+            <Field label="Break end">
+              <input type="time" value={breakEnd} onChange={(e) => setBreakEnd(e.target.value)}
+                className="w-full border rounded-lg px-3 py-2" />
+            </Field>
           </div>
           <div>
             <div className="text-xs font-semibold text-gray-500 mb-2">Point Counts</div>
-            <div className="grid grid-cols-3 md:grid-cols-7 gap-3">
-              <NumField label="Power" v={pp} on={setPp} />
-              <NumField label="GI Box" v={gi} on={setGi} />
-              <NumField label="Data" v={dp} on={setDp} />
-              <NumField label="Telephone" v={tel} on={setTel} />
-              <NumField label="Lighting" v={lt} on={setLt} />
-              <NumField label="FCU" v={fc} on={setFc} />
-              <NumField label="DB Conduit" v={db} on={setDb} />
+            <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+              {POINT_FIELDS.map((p) => (
+                <NumField
+                  key={p.key as string}
+                  label={p.label}
+                  v={points[p.key as string] ?? 0}
+                  on={(v) => setPt(p.key as string, v)}
+                  decimal={p.decimal}
+                />
+              ))}
             </div>
           </div>
           <div className="text-xs text-gray-500">
@@ -297,9 +372,15 @@ function QueueRow({
 /* ==============================
    NEW ENTRY TAB (morning form)
    ============================== */
-function NewEntryTab({ flash, onDone }: { flash: (m: string, k?: ToastKind) => void; onDone: () => void }) {
+function NewEntryTab({
+  flash, onDone, suggestions,
+}: {
+  flash: (m: string, k?: ToastKind) => void;
+  onDone: () => void;
+  suggestions: SuggestionMap;
+}) {
   const { employee } = useAuth();
-  const [form, setForm] = useState<Partial<WorkEntry>>(EMPTY_NEW);
+  const [form, setForm] = useState<Partial<WorkEntry>>({ ...EMPTY_NEW, check_in_time: currentHHMM() });
   const [saving, setSaving] = useState(false);
 
   function set<K extends keyof WorkEntry>(k: K, v: WorkEntry[K]) {
@@ -311,6 +392,8 @@ function NewEntryTab({ flash, onDone }: { flash: (m: string, k?: ToastKind) => v
     if (!form.client?.trim()) return flash("Client is required", "error");
     if (!form.description?.trim()) return flash("Description is required", "error");
     if (!form.target_hours || form.target_hours <= 0) return flash("Target hours must be > 0", "error");
+    if (!form.total_manpower || form.total_manpower <= 0) return flash("Total manpower is required", "error");
+    if (!form.check_in_time) return flash("Check-in time is required", "error");
 
     setSaving(true);
     const payload = {
@@ -325,6 +408,12 @@ function NewEntryTab({ flash, onDone }: { flash: (m: string, k?: ToastKind) => v
       status: form.status ?? "IN PROGRESS",
       client: form.client,
       target_hours: form.target_hours,
+      apartment_number: form.apartment_number?.trim() ? form.apartment_number.trim() : null,
+      total_manpower: form.total_manpower,
+      check_in_time: form.check_in_time || null,
+      check_out_time: form.check_out_time || null,
+      break_start_time: form.break_start_time || null,
+      break_end_time: form.break_end_time || null,
       employee_id: employee?.id ?? null,
       employee_name: employee?.full_name ?? null,
       created_by_id: employee?.id ?? null,
@@ -333,7 +422,6 @@ function NewEntryTab({ flash, onDone }: { flash: (m: string, k?: ToastKind) => v
     setSaving(false);
     if (error) return flash(error.message, "error");
     flash(`Queued · Villa ${form.villa} · ${form.target_hours}h target`, "success");
-    // keep cluster/phase/client for next entry, reset the rest
     setForm({
       ...EMPTY_NEW,
       cluster: form.cluster,
@@ -342,6 +430,8 @@ function NewEntryTab({ flash, onDone }: { flash: (m: string, k?: ToastKind) => v
       floor_type: form.floor_type,
       description: form.description,
       bedroom_type: form.bedroom_type,
+      total_manpower: form.total_manpower,
+      check_in_time: currentHHMM(),
     });
     onDone();
   }
@@ -362,31 +452,34 @@ function NewEntryTab({ flash, onDone }: { flash: (m: string, k?: ToastKind) => v
 
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         <Field label="Cluster">
-          <input value={form.cluster ?? ""} onChange={(e) => set("cluster", e.target.value)} className={cx()} placeholder="e.g. V-14" />
+          <SuggestInput value={form.cluster ?? ""} onChange={(v) => set("cluster", v)}
+            className={cx()} placeholder="e.g. V-14" options={suggestions.cluster ?? []} listId="s-cluster" />
         </Field>
         <Field label="Phase">
-          <input value={form.phase ?? ""} onChange={(e) => set("phase", e.target.value)} className={cx()} placeholder="e.g. PH-2" />
+          <SuggestInput value={form.phase ?? ""} onChange={(v) => set("phase", v)}
+            className={cx()} placeholder="e.g. PH-2" options={suggestions.phase ?? []} listId="s-phase" />
         </Field>
         <Field label="Villa *">
-          <input value={form.villa ?? ""} onChange={(e) => set("villa", e.target.value)} className={cx()} placeholder="e.g. 101" />
+          <SuggestInput value={form.villa ?? ""} onChange={(v) => set("villa", v)}
+            className={cx()} placeholder="e.g. 101" options={suggestions.villa ?? []} listId="s-villa" />
         </Field>
 
         <Field label="Bedroom">
-          <select value={form.bedroom_type ?? "3 BR"} onChange={(e) => set("bedroom_type", e.target.value)} className={cx()}>
-            {BEDROOM_OPTS.map((o) => <option key={o}>{o}</option>)}
-          </select>
+          <SuggestInput value={form.bedroom_type ?? ""} onChange={(v) => set("bedroom_type", v)}
+            className={cx()} placeholder="e.g. 3 BR" options={suggestions.bedroom_type ?? []} listId="s-bedroom" />
         </Field>
         <Field label="Floor">
-          <select value={form.floor_type ?? "SOG"} onChange={(e) => set("floor_type", e.target.value)} className={cx()}>
-            {FLOOR_OPTS.map((o) => <option key={o}>{o}</option>)}
-          </select>
+          <SuggestInput value={form.floor_type ?? ""} onChange={(v) => set("floor_type", v)}
+            className={cx()} placeholder="e.g. SOG" options={suggestions.floor_type ?? []} listId="s-floor" />
         </Field>
         <Field label="Description *">
-          <input value={form.description ?? ""} onChange={(e) => set("description", e.target.value)} className={cx()} placeholder="e.g. Slab Conduiting" />
+          <SuggestInput value={form.description ?? ""} onChange={(v) => set("description", v)}
+            className={cx()} placeholder="e.g. Slab Conduiting" options={suggestions.description ?? []} listId="s-desc" />
         </Field>
 
         <Field label="Client *">
-          <input value={form.client ?? ""} onChange={(e) => set("client", e.target.value)} className={cx()} placeholder="Client / project" />
+          <SuggestInput value={form.client ?? ""} onChange={(v) => set("client", v)}
+            className={cx()} placeholder="Client / project" options={suggestions.client ?? []} listId="s-client" />
         </Field>
         <Field label="Status">
           <select value={form.status ?? "IN PROGRESS"} onChange={(e) => set("status", e.target.value)} className={cx()}>
@@ -397,6 +490,19 @@ function NewEntryTab({ flash, onDone }: { flash: (m: string, k?: ToastKind) => v
           <input type="date" value={form.start_date ?? ""} onChange={(e) => set("start_date", e.target.value)} className={cx()} />
         </Field>
 
+        <Field label="Apartment">
+          <SuggestInput value={form.apartment_number ?? ""} onChange={(v) => set("apartment_number", v)}
+            className={cx()} placeholder="e.g. 12A (optional)" options={suggestions.apartment_number ?? []} listId="s-apt" />
+        </Field>
+        <Field label="Total Manpower *">
+          <input
+            type="number" inputMode="numeric" min={1} step={1}
+            value={form.total_manpower ?? ""}
+            onChange={(e) => set("total_manpower", e.target.value ? parseInt(e.target.value) : null)}
+            className={cx("font-semibold")}
+            placeholder="e.g. 4"
+          />
+        </Field>
         <Field label="Target Hours *">
           <input
             type="number" inputMode="decimal" min={0} step={0.5}
@@ -405,6 +511,20 @@ function NewEntryTab({ flash, onDone }: { flash: (m: string, k?: ToastKind) => v
             className={cx("font-semibold")}
             placeholder="e.g. 25"
           />
+        </Field>
+
+        <Field label="Check-in *">
+          <input type="time" value={form.check_in_time ?? ""} onChange={(e) => set("check_in_time", e.target.value)} className={cx()} />
+        </Field>
+        <Field label="Check-out (optional)">
+          <input type="time" value={form.check_out_time ?? ""} onChange={(e) => set("check_out_time", e.target.value)} className={cx()} />
+        </Field>
+        <div />
+        <Field label="Break start (optional)">
+          <input type="time" value={form.break_start_time ?? ""} onChange={(e) => set("break_start_time", e.target.value)} className={cx()} />
+        </Field>
+        <Field label="Break end (optional)">
+          <input type="time" value={form.break_end_time ?? ""} onChange={(e) => set("break_end_time", e.target.value)} className={cx()} />
         </Field>
       </div>
 
@@ -451,5 +571,33 @@ function NumField({
         className="w-full border rounded-lg px-3 py-2 text-center font-semibold focus:outline-none focus:ring-4 focus:ring-brand-yellow/30 focus:border-brand-yellow"
       />
     </label>
+  );
+}
+
+/** Free text input with an attached <datalist> for autocomplete suggestions */
+function SuggestInput({
+  value, onChange, className, placeholder, options, listId,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  className?: string;
+  placeholder?: string;
+  options: string[];
+  listId: string;
+}) {
+  return (
+    <>
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className={className}
+        placeholder={placeholder}
+        list={listId}
+        autoComplete="off"
+      />
+      <datalist id={listId}>
+        {options.map((o) => <option key={o} value={o} />)}
+      </datalist>
+    </>
   );
 }

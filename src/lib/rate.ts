@@ -26,8 +26,10 @@ export function rateToneClasses(tone: RateTone): string {
 export const COLUMN_KIND: Record<FilterCol, "text" | "date" | "number"> = {
   cluster: "text", phase: "text", villa: "text", bedroom_type: "text",
   floor_type: "text", description: "text", client: "text", status: "text",
+  apartment_number: "text",
   start_date: "date", end_date: "date",
   hours: "number", target_hours: "number", total_price: "number", per_hour_ratio: "number",
+  total_manpower: "number",
 };
 
 function cellValue(row: any, col: FilterCol): any { return row[col]; }
