@@ -7,6 +7,7 @@ import AdminFinalized from "./AdminFinalized";
 import { StateBadge, relativeAgo } from "../components/StateBadge";
 import { Toast } from "../components/Toast";
 import type { ToastKind } from "../components/Toast";
+import { Logo } from "../components/Logo";
 
 type Tab = "queue" | "finalized" | "employees";
 type QFilter = "ALL" | EntryState;
@@ -56,9 +57,9 @@ export default function AdminDashboard() {
       <header className="bg-brand-ink text-white">
         <div className="max-w-[1400px] mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-brand-yellow rounded-lg flex items-center justify-center text-brand-ink font-bold">S</div>
+            <Logo size="sm" className="bg-white rounded-lg p-1" />
             <div>
-              <div className="font-bold font-serif tracking-wide">SUNSTAR Admin</div>
+              <div className="font-bold font-serif tracking-wide text-white">Admin</div>
               <div className="text-xs text-gray-400">{employee?.full_name}</div>
             </div>
           </div>
@@ -76,7 +77,7 @@ export default function AdminDashboard() {
                 onClick={() => setTab(t)}
                 className={`px-4 py-3 text-sm font-medium border-b-2 -mb-px transition ${
                   tab === t
-                    ? "border-brand-yellow text-brand-yellow"
+                    ? "border-brand-blue text-brand-blue"
                     : "border-transparent text-gray-400 hover:text-white"
                 }`}
               >
@@ -165,7 +166,7 @@ function QueuePanel({
           <input
             value={q} onChange={(e) => setQ(e.target.value)}
             placeholder="Search villa, cluster, client…"
-            className="ml-auto text-sm border rounded-lg px-3 py-1.5 min-w-[240px] focus:outline-none focus:ring-2 focus:ring-brand-yellow"
+            className="ml-auto text-sm border rounded-lg px-3 py-1.5 min-w-[240px] focus:outline-none focus:ring-2 focus:ring-brand-blue"
           />
         </div>
       </div>
@@ -207,14 +208,14 @@ function QueuePanel({
                   {r.state === "AWAITING_PRICE" && (
                     <button
                       onClick={() => setPriceRow(r)}
-                      className="bg-brand-yellow hover:bg-brand-yellowDark text-brand-ink font-bold px-4 py-2 rounded-lg text-sm shadow"
+                      className="bg-brand-blue hover:bg-brand-blueDark text-brand-ink font-bold px-4 py-2 rounded-lg text-sm shadow"
                     >
                       Set price →
                     </button>
                   )}
                   <button
                     onClick={() => setEditRow(r)}
-                    className="border border-brand-ink text-brand-ink hover:bg-brand-ink hover:text-brand-yellow font-semibold px-4 py-2 rounded-lg text-sm transition"
+                    className="border border-brand-ink text-brand-ink hover:bg-brand-ink hover:text-brand-blue font-semibold px-4 py-2 rounded-lg text-sm transition"
                   >
                     Edit
                   </button>
@@ -270,8 +271,8 @@ function FilterChip({ active, onClick, label }: { active: boolean; onClick: () =
       onClick={onClick}
       className={`text-xs font-medium px-3 py-1.5 rounded-full border transition ${
         active
-          ? "bg-brand-ink text-brand-yellow border-brand-ink"
-          : "bg-white text-gray-700 border-gray-200 hover:border-brand-yellow"
+          ? "bg-brand-ink text-brand-blue border-brand-ink"
+          : "bg-white text-gray-700 border-gray-200 hover:border-brand-blue"
       }`}
     >
       {label}
@@ -325,7 +326,7 @@ function PriceModal({
           type="number" min={0} step="0.01" autoFocus
           value={price}
           onChange={(e) => setPrice(e.target.value ? +e.target.value : "")}
-          className="w-full border rounded-xl px-4 py-3 font-semibold focus:outline-none focus:ring-4 focus:ring-brand-yellow/30 focus:border-brand-yellow"
+          className="w-full border rounded-xl px-4 py-3 font-semibold focus:outline-none focus:ring-4 focus:ring-brand-blue/30 focus:border-brand-blue"
         />
       </label>
       <div className={`rounded-xl p-3 mb-4 text-sm flex justify-between font-semibold ${previewClass}`}>
@@ -335,7 +336,7 @@ function PriceModal({
       <div className="flex justify-end gap-2">
         <button onClick={onClose} className="px-4 py-2 rounded-lg border">Cancel</button>
         <button onClick={submit} disabled={saving}
-          className="px-4 py-2 rounded-lg bg-brand-ink text-brand-yellow font-bold disabled:opacity-50">
+          className="px-4 py-2 rounded-lg bg-brand-ink text-brand-blue font-bold disabled:opacity-50">
           {saving ? "Saving…" : "Finalize"}
         </button>
       </div>
@@ -402,7 +403,7 @@ function FullEditModal({
     onDone();
   }
 
-  const cx = "w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-yellow focus:border-brand-yellow";
+  const cx = "w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-brand-blue";
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
@@ -506,7 +507,7 @@ function FullEditModal({
         <div className="p-4 border-t flex justify-end gap-2 flex-shrink-0 bg-white rounded-b-2xl">
           <button onClick={onClose} className="px-4 py-2 rounded-lg border">Cancel</button>
           <button onClick={submit} disabled={saving}
-            className="px-5 py-2 rounded-lg bg-brand-ink text-brand-yellow font-bold disabled:opacity-50">
+            className="px-5 py-2 rounded-lg bg-brand-ink text-brand-blue font-bold disabled:opacity-50">
             {saving ? "Saving…" : "Save all changes"}
           </button>
         </div>

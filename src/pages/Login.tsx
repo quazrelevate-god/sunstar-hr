@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../lib/auth";
+import { Logo } from "../components/Logo";
 
 export default function Login() {
   const { signIn, session, employee } = useAuth();
@@ -34,10 +35,7 @@ export default function Login() {
       <header className="border-b border-gray-100">
         <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-brand-yellow rounded-lg flex items-center justify-center font-bold text-brand-ink">
-              S
-            </div>
-            <span className="font-serif text-lg tracking-wide">SUNSTAR</span>
+            <Logo size="sm" />
           </div>
           <div className="text-xs text-gray-500">Work Measurement Portal</div>
         </div>
@@ -48,9 +46,7 @@ export default function Login() {
         <div className="w-full max-w-md">
           {/* Logo mark above card */}
           <div className="flex justify-center mb-8">
-            <div className="w-12 h-12 bg-brand-yellow rounded-2xl flex items-center justify-center font-bold text-brand-ink text-2xl shadow-sm">
-              S
-            </div>
+            <Logo size="lg" />
           </div>
 
           {/* Card */}
@@ -63,7 +59,7 @@ export default function Login() {
             <form onSubmit={submit} className="space-y-5">
               <div>
                 <label className="block text-sm font-medium mb-1.5">
-                  Username <span className="text-brand-yellowDark">*</span>
+                  Username <span className="text-brand-blueDark">*</span>
                 </label>
                 <input
                   type="text"
@@ -73,14 +69,14 @@ export default function Login() {
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="e.g. admin or your username"
-                  className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:outline-none focus:ring-4 focus:ring-brand-yellow/25 focus:border-brand-yellow transition"
+                  className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:outline-none focus:ring-4 focus:ring-brand-blue/25 focus:border-brand-blue transition"
                   required
                 />
               </div>
 
               <div>
                 <label className="block text-sm font-medium mb-1.5">
-                  Password <span className="text-brand-yellowDark">*</span>
+                  Password <span className="text-brand-blueDark">*</span>
                 </label>
                 <div className="relative">
                   <input
@@ -88,7 +84,7 @@ export default function Login() {
                     autoComplete="current-password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full border border-gray-300 rounded-xl px-4 py-3 pr-11 focus:outline-none focus:ring-4 focus:ring-brand-yellow/25 focus:border-brand-yellow transition"
+                    className="w-full border border-gray-300 rounded-xl px-4 py-3 pr-11 focus:outline-none focus:ring-4 focus:ring-brand-blue/25 focus:border-brand-blue transition"
                     required
                   />
                   <button
@@ -113,7 +109,7 @@ export default function Login() {
 
               <button
                 disabled={busy}
-                className="w-full bg-brand-yellow hover:bg-brand-yellowDark disabled:opacity-50 text-brand-ink font-semibold rounded-xl py-3.5 tracking-wide transition"
+                className="w-full bg-brand-blue hover:bg-brand-blueDark disabled:opacity-50 text-brand-ink font-semibold rounded-xl py-3.5 tracking-wide transition"
               >
                 {busy ? "Signing in…" : "SIGN IN"}
               </button>

@@ -6,7 +6,7 @@ export function Toast({ msg, kind = "info" }: { msg: string; kind?: ToastKind })
       ? "bg-green-600 text-white"
       : kind === "error"
       ? "bg-red-600 text-white"
-      : "bg-brand-ink text-brand-yellow";
+      : "bg-brand-ink text-brand-blue";
   const icon = kind === "success" ? "✓" : kind === "error" ? "✕" : "•";
   return (
     <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 animate-[fadeInDown_.2s_ease-out]">

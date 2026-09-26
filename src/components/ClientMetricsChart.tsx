@@ -7,8 +7,8 @@ import type { WorkEntry } from "../lib/supabase";
 type Metric = "price" | "hours" | "aed_per_hr";
 
 const METRIC_META: Record<Metric, { label: string; color: string; fmt: (v: number) => string }> = {
-  price:      { label: "Total price", color: "#FFC107", fmt: (v) => `AED ${v.toLocaleString(undefined, { maximumFractionDigits: 0 })}` },
-  hours:      { label: "Actual hours", color: "#1a1a1a", fmt: (v) => `${v.toLocaleString(undefined, { maximumFractionDigits: 1 })} h` },
+  price:      { label: "Total price", color: "#2563EB", fmt: (v) => `AED ${v.toLocaleString(undefined, { maximumFractionDigits: 0 })}` },
+  hours:      { label: "Actual hours", color: "#0F172A", fmt: (v) => `${v.toLocaleString(undefined, { maximumFractionDigits: 1 })} h` },
   aed_per_hr: { label: "AED / hr",     color: "#10B981", fmt: (v) => `AED ${v.toFixed(2)}` },
 };
 
@@ -53,7 +53,7 @@ export function ClientMetricsChart({
         </div>
         <button
           onClick={() => setPickerOpen(true)}
-          className="text-xs bg-brand-yellowSoft border border-brand-yellow text-brand-ink font-semibold px-2.5 py-1 rounded-full"
+          className="text-xs bg-brand-blueSoft border border-brand-blue text-brand-ink font-semibold px-2.5 py-1 rounded-full"
         >
           Compare clients →
         </button>
@@ -155,7 +155,7 @@ function ClientPicker({
             <button
               onClick={() => onApply(picked)}
               disabled={picked.length === 0}
-              className="px-4 py-2 rounded-lg bg-brand-ink text-brand-yellow font-bold disabled:opacity-40"
+              className="px-4 py-2 rounded-lg bg-brand-ink text-brand-blue font-bold disabled:opacity-40"
             >
               Apply {picked.length > 0 && `(${picked.length})`}
             </button>

@@ -70,7 +70,7 @@ export function FilterChip({
   cond, onRemove,
 }: { cond: Condition; onRemove?: () => void }) {
   return (
-    <span className="inline-flex items-center gap-1.5 bg-brand-yellowSoft border border-brand-yellow text-brand-ink text-xs px-2.5 py-1 rounded-full font-medium">
+    <span className="inline-flex items-center gap-1.5 bg-brand-blueSoft border border-brand-blue text-brand-ink text-xs px-2.5 py-1 rounded-full font-medium">
       {conditionLabel(cond)}
       {onRemove && (
         <button
@@ -231,7 +231,7 @@ export function AddConditionPopover({
         <div className="flex justify-end gap-2 pt-2">
           <button onClick={onClose} className="px-4 py-2 rounded-lg border">Cancel</button>
           <button onClick={submit}
-            className="px-4 py-2 rounded-lg bg-brand-ink text-brand-yellow font-bold">Add</button>
+            className="px-4 py-2 rounded-lg bg-brand-ink text-brand-blue font-bold">Add</button>
         </div>
       </div>
     </div>
@@ -266,7 +266,7 @@ function MultiPicker({
       {value.length > 0 && (
         <div className="border-t p-2 flex flex-wrap gap-1">
           {value.map((v) => (
-            <span key={v} className="inline-flex items-center gap-1 bg-brand-yellowSoft border border-brand-yellow rounded-full px-2 py-0.5 text-xs">
+            <span key={v} className="inline-flex items-center gap-1 bg-brand-blueSoft border border-brand-blue rounded-full px-2 py-0.5 text-xs">
               {v}
               <button onClick={() => toggle(v)} className="text-brand-ink/50 hover:text-brand-ink">×</button>
             </span>

@@ -5,6 +5,7 @@ import type { WorkEntry } from "../lib/supabase";
 import { Toast } from "../components/Toast";
 import type { ToastKind } from "../components/Toast";
 import { StateBadge, relativeAgo } from "../components/StateBadge";
+import { Logo } from "../components/Logo";
 
 const BEDROOM_SEED = ["3 BR", "4 BR", "5 BR", "6 BR", "Studio"];
 const FLOOR_SEED   = ["SOG", "FF", "SF", "RF", "GF"];
@@ -93,24 +94,22 @@ export default function EmployeeEntry() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-brand-yellowSoft">
+    <div className="min-h-screen bg-slate-50">
       {/* Header */}
-      <header className="bg-brand-yellow shadow">
-        <div className="max-w-6xl mx-auto flex items-center justify-between px-6 py-4">
+      <header className="bg-white border-b border-gray-200 shadow-card">
+        <div className="max-w-6xl mx-auto flex items-center justify-between px-6 py-3">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-brand-ink rounded-lg flex items-center justify-center text-brand-yellow font-bold">
-              S
-            </div>
-            <div>
-              <div className="font-bold text-brand-ink">Sunstar Work</div>
-              <div className="text-xs text-brand-ink/70">
+            <Logo size="sm" />
+            <div className="border-l border-gray-200 pl-3">
+              <div className="font-semibold text-brand-ink text-sm">Work Portal</div>
+              <div className="text-xs text-gray-500">
                 {employee?.full_name} · {employee?.employee_code}
               </div>
             </div>
           </div>
           <button
             onClick={signOut}
-            className="bg-brand-ink text-white px-4 py-2 rounded-lg text-sm font-medium"
+            className="bg-brand-ink hover:bg-black text-white px-4 py-2 rounded-lg text-sm font-medium"
           >
             Sign out
           </button>
@@ -125,8 +124,8 @@ export default function EmployeeEntry() {
                 onClick={() => setTab(t)}
                 className={`px-4 py-3 text-sm font-semibold border-b-2 -mb-px transition ${
                   tab === t
-                    ? "border-brand-ink text-brand-ink"
-                    : "border-transparent text-brand-ink/60 hover:text-brand-ink"
+                    ? "border-brand-blue text-brand-blue"
+                    : "border-transparent text-gray-500 hover:text-brand-ink"
                 }`}
               >
                 {t === "queue" ? "Queue" : "+ New Entry"}
@@ -314,7 +313,7 @@ function QueueRow({
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); onToggle(); }}
-            className="bg-brand-yellow hover:bg-brand-yellowDark text-brand-ink font-semibold px-4 py-2 rounded-lg text-sm"
+            className="bg-brand-blue hover:bg-brand-blueDark text-brand-ink font-semibold px-4 py-2 rounded-lg text-sm"
           >
             {open ? "Close" : "Fill actuals →"}
           </button>
@@ -323,7 +322,7 @@ function QueueRow({
 
       {/* Expanded form */}
       {open && (
-        <div className="border-t bg-brand-yellowSoft/40 p-5 space-y-4">
+        <div className="border-t bg-brand-blueSoft/40 p-5 space-y-4">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <NumField required label="Actual Hours *" v={hours} on={setHours as any} decimal />
             <Field label="Check-out">
@@ -359,7 +358,7 @@ function QueueRow({
           <button
             onClick={submit}
             disabled={saving}
-            className="w-full bg-brand-ink hover:bg-black disabled:opacity-50 text-brand-yellow font-bold rounded-xl py-4 text-lg shadow"
+            className="w-full bg-brand-ink hover:bg-black disabled:opacity-50 text-brand-blue font-bold rounded-xl py-4 text-lg shadow"
           >
             {saving ? "Submitting…" : "✓ Submit for pricing"}
           </button>
@@ -437,7 +436,7 @@ function NewEntryTab({
   }
 
   const cx = (extra = "") =>
-    `w-full border rounded-xl px-4 py-3 focus:outline-none focus:ring-4 focus:ring-brand-yellow/30 focus:border-brand-yellow ${extra}`;
+    `w-full border rounded-xl px-4 py-3 focus:outline-none focus:ring-4 focus:ring-brand-blue/30 focus:border-brand-blue ${extra}`;
 
   return (
     <div className="bg-white rounded-3xl shadow-lg p-6 tap-lg">
@@ -531,7 +530,7 @@ function NewEntryTab({
       <button
         onClick={submit}
         disabled={saving}
-        className="mt-6 w-full bg-brand-yellow hover:bg-brand-yellowDark disabled:opacity-50 text-brand-ink font-bold rounded-2xl py-5 text-xl shadow-lg active:scale-[.99] transition"
+        className="mt-6 w-full bg-brand-blue hover:bg-brand-blueDark disabled:opacity-50 text-brand-ink font-bold rounded-2xl py-5 text-xl shadow-lg active:scale-[.99] transition"
       >
         {saving ? "Queueing…" : "✓ Queue for actuals"}
       </button>
@@ -568,7 +567,7 @@ function NumField({
         required={required}
         value={v === 0 && !required ? "" : v}
         onChange={(e) => on(decimal ? (parseFloat(e.target.value) || 0) : (parseInt(e.target.value) || 0))}
-        className="w-full border rounded-lg px-3 py-2 text-center font-semibold focus:outline-none focus:ring-4 focus:ring-brand-yellow/30 focus:border-brand-yellow"
+        className="w-full border rounded-lg px-3 py-2 text-center font-semibold focus:outline-none focus:ring-4 focus:ring-brand-blue/30 focus:border-brand-blue"
       />
     </label>
   );

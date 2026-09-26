@@ -130,7 +130,7 @@ export default function AdminEmployees() {
         </div>
         <button
           onClick={() => setShowForm((v) => !v)}
-          className="bg-brand-yellow hover:bg-brand-yellowDark text-brand-ink font-semibold px-4 py-2 rounded-lg"
+          className="bg-brand-blue hover:bg-brand-blueDark text-brand-ink font-semibold px-4 py-2 rounded-lg"
         >
           {showForm ? "Cancel" : "+ New employee"}
         </button>
@@ -144,7 +144,7 @@ export default function AdminEmployees() {
             <input required minLength={3} value={fUsername}
               onChange={(e) => setFUsername(e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ""))}
               placeholder="e.g. ravi.k"
-              className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-yellow" />
+              className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-blue" />
             {fUsername && <div className="text-[11px] text-gray-500 mt-1">
               Login: <b>{fUsername}</b> · Password shared separately
             </div>}
@@ -153,11 +153,11 @@ export default function AdminEmployees() {
             <input required type="text" minLength={6} value={fPassword}
               onChange={(e) => setFPassword(e.target.value)}
               placeholder="min 6 chars"
-              className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-yellow" />
+              className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-blue" />
           </Field>
           <Field label="Role">
             <select value={fRole} onChange={(e) => setFRole(e.target.value as any)}
-              className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-yellow">
+              className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-blue">
               <option value="employee">Employee</option>
               <option value="admin">Admin</option>
             </select>
@@ -166,17 +166,17 @@ export default function AdminEmployees() {
             <input required value={fFullName}
               onChange={(e) => setFFullName(e.target.value)}
               placeholder="e.g. Ravi Kumar"
-              className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-yellow" />
+              className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-blue" />
           </Field>
           <Field label="Employee code *">
             <input required value={fCode}
               onChange={(e) => setFCode(e.target.value.toUpperCase())}
               placeholder="e.g. EMP-002"
-              className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-yellow" />
+              className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-blue" />
           </Field>
           <div className="flex items-end">
             <button disabled={creating}
-              className="w-full bg-brand-ink text-brand-yellow disabled:opacity-50 font-bold px-4 py-2 rounded-lg">
+              className="w-full bg-brand-ink text-brand-blue disabled:opacity-50 font-bold px-4 py-2 rounded-lg">
               {creating ? "Creating…" : "Create login"}
             </button>
           </div>
@@ -202,14 +202,14 @@ export default function AdminEmployees() {
               ) : rows.length === 0 ? (
                 <tr><td colSpan={6} className="p-6 text-center text-gray-500">No employees yet.</td></tr>
               ) : rows.map((r) => (
-                <tr key={r.id} className="border-t hover:bg-brand-yellowSoft/50">
+                <tr key={r.id} className="border-t hover:bg-brand-blueSoft/50">
                   <td className="px-4 py-3 font-medium">{r.full_name}
                     {r.id === me?.id && <span className="ml-2 text-xs bg-gray-100 rounded px-2 py-0.5">you</span>}
                   </td>
                   <td className="px-4 py-3 text-gray-600">{r.employee_code}</td>
                   <td className="px-4 py-3">
                     <span className={`text-xs px-2 py-1 rounded-full font-medium ${
-                      r.role === "admin" ? "bg-brand-ink text-brand-yellow" : "bg-brand-yellow text-brand-ink"
+                      r.role === "admin" ? "bg-brand-ink text-brand-blue" : "bg-brand-blue text-brand-ink"
                     }`}>{r.role}</span>
                   </td>
                   <td className="px-4 py-3">
@@ -220,7 +220,7 @@ export default function AdminEmployees() {
                   <td className="px-4 py-3 text-gray-500 text-xs">{new Date(r.created_at).toLocaleDateString()}</td>
                   <td className="px-4 py-3 text-right space-x-2">
                     <button onClick={() => setResetFor(r)}
-                      className="text-brand-yellowDark hover:underline text-sm">Reset password</button>
+                      className="text-brand-blueDark hover:underline text-sm">Reset password</button>
                     <button onClick={() => setConfirmDel(r)}
                       disabled={r.id === me?.id}
                       className="text-red-600 hover:underline text-sm disabled:opacity-30 disabled:no-underline">Delete</button>
@@ -260,12 +260,12 @@ export default function AdminEmployees() {
           <input autoFocus type="text" value={newPw}
             onChange={(e) => setNewPw(e.target.value)}
             placeholder="new password (min 6 chars)"
-            className="w-full border rounded-lg px-3 py-2 mb-4 focus:outline-none focus:ring-2 focus:ring-brand-yellow" />
+            className="w-full border rounded-lg px-3 py-2 mb-4 focus:outline-none focus:ring-2 focus:ring-brand-blue" />
           <div className="flex justify-end gap-2">
             <button onClick={() => { setResetFor(null); setNewPw(""); }}
               className="px-4 py-2 rounded-lg border">Cancel</button>
             <button onClick={doReset} disabled={resetting || newPw.length < 6}
-              className="px-4 py-2 rounded-lg bg-brand-ink text-brand-yellow font-bold disabled:opacity-50">
+              className="px-4 py-2 rounded-lg bg-brand-ink text-brand-blue font-bold disabled:opacity-50">
               {resetting ? "Saving…" : "Reset password"}
             </button>
           </div>
