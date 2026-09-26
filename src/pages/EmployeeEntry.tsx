@@ -94,7 +94,7 @@ export default function EmployeeEntry() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-gradient-to-b from-sky-50 via-white to-blue-50/40">
       {/* Header */}
       <header className="bg-white border-b border-gray-200 shadow-card">
         <div className="max-w-6xl mx-auto flex items-center justify-between px-6 py-3">

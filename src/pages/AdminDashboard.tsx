@@ -53,19 +53,19 @@ export default function AdminDashboard() {
   const queue = useMemo(() => rows.filter((r) => r.state !== "FINALIZED"), [rows]);
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-brand-ink text-white">
-        <div className="max-w-[1400px] mx-auto px-6 py-4 flex items-center justify-between">
+    <div className="min-h-screen bg-gradient-to-b from-sky-50 via-white to-blue-50/40">
+      <header className="bg-white border-b border-slate-200/70 shadow-card">
+        <div className="max-w-[1400px] mx-auto px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Logo size="sm" className="bg-white rounded-lg p-1" />
-            <div>
-              <div className="font-bold font-serif tracking-wide text-white">Admin</div>
-              <div className="text-xs text-gray-400">{employee?.full_name}</div>
+            <Logo size="sm" />
+            <div className="border-l border-slate-200 pl-3">
+              <div className="font-semibold text-brand-ink text-sm">Admin Portal</div>
+              <div className="text-xs text-slate-500">{employee?.full_name}</div>
             </div>
           </div>
           <div className="flex gap-2">
-            <button onClick={load} className="bg-white/10 hover:bg-white/20 px-4 py-2 rounded-lg text-sm">Refresh</button>
-            <button onClick={signOut} className="bg-white/10 hover:bg-white/20 px-4 py-2 rounded-lg text-sm">Sign out</button>
+            <button onClick={load} className="bg-slate-100 hover:bg-slate-200 text-brand-ink px-3.5 py-2 rounded-lg text-sm font-medium">Refresh</button>
+            <button onClick={signOut} className="bg-brand-ink hover:bg-black text-white px-3.5 py-2 rounded-lg text-sm font-medium">Sign out</button>
           </div>
         </div>
 
@@ -75,10 +75,10 @@ export default function AdminDashboard() {
               <button
                 key={t}
                 onClick={() => setTab(t)}
-                className={`px-4 py-3 text-sm font-medium border-b-2 -mb-px transition ${
+                className={`px-4 py-3 text-sm font-semibold border-b-2 -mb-px transition ${
                   tab === t
                     ? "border-brand-blue text-brand-blue"
-                    : "border-transparent text-gray-400 hover:text-white"
+                    : "border-transparent text-slate-500 hover:text-brand-ink"
                 }`}
               >
                 {t === "queue" ? `Queue${queue.length ? ` (${queue.length})` : ""}`
