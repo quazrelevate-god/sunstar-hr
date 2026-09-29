@@ -155,7 +155,7 @@ function ClientPicker({
             <button
               onClick={() => onApply(picked)}
               disabled={picked.length === 0}
-              className="px-4 py-2 rounded-lg bg-brand-ink text-brand-blue font-bold disabled:opacity-40"
+              className="px-4 py-2 rounded-lg bg-brand-ink text-white font-bold disabled:opacity-40"
             >
               Apply {picked.length > 0 && `(${picked.length})`}
             </button>

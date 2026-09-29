@@ -231,7 +231,7 @@ export function AddConditionPopover({
         <div className="flex justify-end gap-2 pt-2">
           <button onClick={onClose} className="px-4 py-2 rounded-lg border">Cancel</button>
           <button onClick={submit}
-            className="px-4 py-2 rounded-lg bg-brand-ink text-brand-blue font-bold">Add</button>
+            className="px-4 py-2 rounded-lg bg-brand-ink text-white font-bold">Add</button>
         </div>
       </div>
     </div>

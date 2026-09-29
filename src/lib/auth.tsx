@@ -34,10 +34,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (data.session?.user?.id) await loadEmployee(data.session.user.id);
       setLoading(false);
     });
-    const { data: sub } = supabase.auth.onAuthStateChange(async (_e, s) => {
+    // Supabase warns against awaiting other Supabase calls inside this callback
+    // (it can deadlock the auth client), so the profile lookup runs just after it.
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
       setSession(s);
-      if (s?.user?.id) await loadEmployee(s.user.id);
-      else setEmployee(null);
+      if (s?.user?.id) {
+        const uid = s.user.id;
+        setTimeout(() => { loadEmployee(uid); }, 0);
+      } else {
+        setEmployee(null);
+      }
     });
     return () => sub.subscription.unsubscribe();
   }, []);

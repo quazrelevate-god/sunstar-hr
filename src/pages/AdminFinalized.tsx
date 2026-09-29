@@ -3,6 +3,7 @@ import * as XLSX from "xlsx";
 import { supabase, POINT_FIELDS } from "../lib/supabase";
 import type { WorkEntry, SavedFilter, Condition, FilterCol } from "../lib/supabase";
 import { passesConditions, rateTone, rateToneClasses } from "../lib/rate";
+import { fetchAll, todayDubai } from "../lib/data";
 import { AddConditionPopover, FilterChip } from "../components/FilterBuilder";
 import { ClientMetricsChart } from "../components/ClientMetricsChart";
 import { CompanyRatioPanel } from "../components/CompanyRatioPanel";
@@ -46,10 +47,29 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
     setViews((data as SavedFilter[]) ?? []);
   }
 
+  /** Add one row's text values to the filter dropdowns (no full refetch). */
+  function mergeOptions(row: any) {
+    if (!row) return;
+    setOptionsByCol((prev) => {
+      const next = { ...prev };
+      TEXT_COLS.forEach((c) => {
+        const v = row[c];
+        if (v == null || String(v).trim() === "") return;
+        const val = String(v).trim();
+        const list = next[c] ?? [];
+        if (!list.includes(val)) next[c] = [...list, val].sort((a, b) => a.localeCompare(b));
+      });
+      return next;
+    });
+  }
+
   async function loadOptions() {
-    const { data, error } = await supabase
-      .from("sunstar_work_entries")
-      .select(TEXT_COLS.join(","));
+    // Paged past the 1,000-row API cap so older values still appear.
+    const { data, error } = await fetchAll<any>(() =>
+      supabase
+        .from("sunstar_work_entries")
+        .select(`id,${TEXT_COLS.join(",")}`)
+        .order("id"));
     if (error) return;
     const acc: Partial<Record<FilterCol, Set<string>>> = {};
     (data ?? []).forEach((row: any) => {
@@ -73,7 +93,7 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
     const ch = supabase
       .channel("saved-filters-live")
       .on("postgres_changes", { event: "*", schema: "public", table: "sunstar_saved_filters" }, () => loadViews())
-      .on("postgres_changes", { event: "*", schema: "public", table: "sunstar_work_entries" }, () => loadOptions())
+      .on("postgres_changes", { event: "*", schema: "public", table: "sunstar_work_entries" }, (p: any) => mergeOptions(p.new))
       .subscribe();
     return () => { supabase.removeChannel(ch); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -184,15 +204,18 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
     const sheetName =
       active.kind === "saved" ? active.filter.name.slice(0, 31) : "Sunstar";
     XLSX.utils.book_append_sheet(wb, ws, sheetName);
-    XLSX.writeFile(wb, `sunstar_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    XLSX.writeFile(wb, `sunstar_${todayDubai()}.xlsx`);
   }
 
   return (
-    <div className="h-[calc(100vh-140px)] overflow-hidden">
+    // Fixed-height split-screen only on wide desktops (≥1280px). On narrower
+    // windows the columns stack and the page scrolls normally, so the table
+    // is never cut off.
+    <div className="xl:h-[calc(100vh-140px)] xl:overflow-hidden">
       {toast && <Toast msg={toast.msg} kind={toast.kind} />}
 
       {/* THREE-column grid on desktop: [Views | Charts | Table] */}
-      <div className="grid gap-4 h-full grid-cols-1 xl:grid-cols-[220px_minmax(380px,32%)_minmax(0,1fr)]">
+      <div className="grid gap-4 xl:h-full grid-cols-1 xl:grid-cols-[220px_minmax(380px,32%)_minmax(0,1fr)]">
         {/* LEFT: Views sidebar (scrolls internally if long) */}
         <aside className="bg-white rounded-2xl shadow-sm p-3 overflow-y-auto">
           <div className="text-xs font-bold text-gray-500 uppercase tracking-wide px-2 mb-2">Views</div>
@@ -252,13 +275,13 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
               <div className="flex gap-2 flex-wrap">
                 {!locked && (
                   <button onClick={() => setAdding(true)}
-                    className="bg-brand-ink text-brand-blue font-bold px-3 py-2 rounded-lg text-sm">
+                    className="bg-brand-ink text-white font-bold px-3 py-2 rounded-lg text-sm">
                     + Add condition
                   </button>
                 )}
                 {locked && active.kind === "saved" && (
                   <button onClick={requestEdit}
-                    className="bg-brand-blue text-brand-ink font-bold px-3 py-2 rounded-lg text-sm">
+                    className="bg-brand-blue text-white font-bold px-3 py-2 rounded-lg text-sm">
                     Edit filter
                   </button>
                 )}
@@ -270,7 +293,7 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
                 )}
                 {!locked && (active.kind === "custom" || (active.kind === "all" && conds.length > 0)) && (
                   <button onClick={() => setAskSave(true)}
-                    className="bg-brand-blue text-brand-ink font-bold px-3 py-2 rounded-lg text-sm">
+                    className="bg-brand-blue text-white font-bold px-3 py-2 rounded-lg text-sm">
                     Save as view
                   </button>
                 )}
@@ -320,7 +343,7 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
                 </div>
               )}
             </div>
-            <div className="overflow-auto flex-1">
+            <div className="overflow-auto flex-1 max-h-[75vh] xl:max-h-none">
               <table className="min-w-full text-sm">
                 <thead className="bg-gray-50 text-gray-600 text-xs uppercase sticky top-0 z-10">
                   <tr>
@@ -404,7 +427,7 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
             <div className="flex justify-end gap-2">
               <button onClick={() => setAskSave(false)} className="px-4 py-2 rounded-lg border">Cancel</button>
               <button onClick={saveAsNew} disabled={savingView}
-                className="px-4 py-2 rounded-lg bg-brand-ink text-brand-blue font-bold disabled:opacity-50">
+                className="px-4 py-2 rounded-lg bg-brand-ink text-white font-bold disabled:opacity-50">
                 {savingView ? "Saving…" : "Save view"}
               </button>
             </div>
@@ -429,7 +452,7 @@ function MetricCards({ m }: { m: { hours: number; revenue: number; perHour: numb
 
 function Metric({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
   return (
-    <div className={`rounded-2xl p-3 shadow-sm ${accent ? "bg-brand-blue text-brand-ink" : "bg-white border"}`}>
+    <div className={`rounded-2xl p-3 shadow-sm ${accent ? "bg-brand-blue text-white" : "bg-white border"}`}>
       <div className="text-[11px] uppercase tracking-wide opacity-70 font-semibold">{label}</div>
       <div className="text-lg font-bold mt-1 truncate">{value}</div>
     </div>
@@ -443,13 +466,13 @@ function SidebarItem({
   onClick: () => void; onDelete?: () => void; onRename?: () => void;
 }) {
   return (
-    <div className={`group flex items-center rounded-lg transition ${active ? "bg-brand-blue" : "hover:bg-gray-50"}`}>
+    <div className={`group flex items-center rounded-lg transition ${active ? "bg-brand-blueSoft ring-1 ring-brand-blue" : "hover:bg-gray-50"}`}>
       <button
         onClick={onClick}
-        className={`flex-1 text-left px-3 py-2 text-sm truncate ${active ? "font-bold text-brand-ink" : "text-gray-700"}`}
+        className={`flex-1 text-left px-3 py-2 text-sm truncate ${active ? "font-bold text-brand-blueDark" : "text-gray-700"}`}
       >
         {label}
-        {badge && <span className="ml-2 text-[10px] bg-brand-ink text-brand-blue rounded-full px-1.5 py-0.5">{badge}</span>}
+        {badge && <span className="ml-2 text-[10px] bg-brand-ink text-white rounded-full px-1.5 py-0.5">{badge}</span>}
       </button>
       {(onDelete || onRename) && (
         <div className="opacity-0 group-hover:opacity-100 flex gap-1 pr-2 text-xs">
@@ -471,7 +494,7 @@ function ConfirmModal({
         <div className="text-sm text-gray-600 mb-5">{body}</div>
         <div className="flex justify-end gap-2">
           <button onClick={onCancel} className="px-4 py-2 rounded-lg border">Cancel</button>
-          <button onClick={onConfirm} className="px-4 py-2 rounded-lg bg-brand-ink text-brand-blue font-bold">Confirm</button>
+          <button onClick={onConfirm} className="px-4 py-2 rounded-lg bg-brand-ink text-white font-bold">Confirm</button>
         </div>
       </div>
     </div>

@@ -25,9 +25,17 @@ html, body, #root {
   padding: 10px 12px;
 }
 
-/* Focus ring consistency */
-input:focus, select:focus, textarea:focus, button:focus {
+/* Focus ring consistency — form fields draw their own Tailwind ring */
+input:focus, select:focus, textarea:focus {
   outline: none;
+}
+/* Buttons & links: no ring on mouse/touch click, clear ring for keyboard users */
+button:focus:not(:focus-visible), a:focus:not(:focus-visible) {
+  outline: none;
+}
+button:focus-visible, a:focus-visible, [role="button"]:focus-visible {
+  outline: 3px solid #2563EB;
+  outline-offset: 2px;
 }
 
 /* Toast entry animation */

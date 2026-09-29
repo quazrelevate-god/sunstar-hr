@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../lib/auth";
 import { supabase, POINT_FIELDS } from "../lib/supabase";
 import type { WorkEntry } from "../lib/supabase";
+import { fetchAll, fetchEntry, todayDubai, timeWarnings, maxHours } from "../lib/data";
 import { Toast } from "../components/Toast";
 import type { ToastKind } from "../components/Toast";
 import { StateBadge, relativeAgo } from "../components/StateBadge";
@@ -10,34 +11,51 @@ import { Logo } from "../components/Logo";
 const BEDROOM_SEED = ["3 BR", "4 BR", "5 BR", "6 BR", "Studio"];
 const FLOOR_SEED   = ["SOG", "FF", "SF", "RF", "GF"];
 const STATUS_OPTS  = ["DONE", "IN PROGRESS", "PENDING"];
-
-function todayISO() {
-  return new Date().toISOString().slice(0, 10);
-}
+const SUGGEST_COLS = ["cluster","phase","villa","bedroom_type","floor_type","description","client","status","apartment_number"] as const;
 
 function currentHHMM() {
   const d = new Date();
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-const EMPTY_NEW: Partial<WorkEntry> = {
-  cluster: "",
-  phase: "",
-  villa: "",
-  bedroom_type: "3 BR",
-  description: "",
-  floor_type: "SOG",
-  start_date: todayISO(),
-  status: "IN PROGRESS",
-  client: "",
-  target_hours: null,
-  apartment_number: "",
-  total_manpower: null,
-  check_in_time: currentHHMM(),
-  check_out_time: "",
-  break_start_time: "",
-  break_end_time: "",
-};
+/** Fresh blank morning form. Dates/times are computed at call time (not page load),
+ *  so a tablet left open overnight still defaults to today's Dubai date. */
+function emptyNew(): Partial<WorkEntry> {
+  return {
+    cluster: "",
+    phase: "",
+    villa: "",
+    bedroom_type: "3 BR",
+    description: "",
+    floor_type: "SOG",
+    start_date: todayDubai(),
+    status: "IN PROGRESS",
+    client: "",
+    target_hours: null,
+    apartment_number: "",
+    total_manpower: null,
+    check_in_time: currentHHMM(),
+    check_out_time: "",
+    break_start_time: "",
+    break_end_time: "",
+  };
+}
+
+/* ---- Per-row draft of the "Fill actuals" form, kept on the tablet ---- */
+type Draft = { hours: number | ""; checkOut: string; breakStart: string; breakEnd: string; points: Record<string, number> };
+const draftKey = (id: string) => `sunstar-actuals-draft-${id}`;
+function readDraft(id: string): Draft | null {
+  try { const s = localStorage.getItem(draftKey(id)); return s ? (JSON.parse(s) as Draft) : null; } catch { return null; }
+}
+function writeDraft(id: string, d: Draft) {
+  try { localStorage.setItem(draftKey(id), JSON.stringify(d)); } catch { /* storage unavailable */ }
+}
+function clearDraft(id: string) {
+  try { localStorage.removeItem(draftKey(id)); } catch { /* storage unavailable */ }
+}
+
+const byCreatedAsc = (a: WorkEntry, b: WorkEntry) =>
+  String(a.created_at ?? "").localeCompare(String(b.created_at ?? ""));
 
 type Tab = "queue" | "new";
 type SuggestionMap = Partial<Record<string, string[]>>;
@@ -52,10 +70,27 @@ export default function EmployeeEntry() {
     setTimeout(() => setToast(null), 3200);
   };
 
-  // Load distinct text-column history for autocomplete
+  /** Add one row's text values into the autocomplete lists (no refetch). */
+  function mergeSuggestions(row: any) {
+    if (!row) return;
+    setSuggestions((prev) => {
+      const next: SuggestionMap = { ...prev };
+      SUGGEST_COLS.forEach((c) => {
+        const v = row[c];
+        if (v == null || String(v).trim() === "") return;
+        const val = String(v).trim();
+        const list = next[c] ?? [];
+        if (!list.includes(val)) next[c] = [...list, val].sort((a, b) => a.localeCompare(b));
+      });
+      return next;
+    });
+  }
+
+  // Load distinct text-column history for autocomplete (all rows, paged past the 1,000-row API cap)
   async function loadSuggestions() {
-    const cols = ["cluster","phase","villa","bedroom_type","floor_type","description","client","status","apartment_number"] as const;
-    const { data, error } = await supabase.from("sunstar_work_entries").select(cols.join(","));
+    const cols = SUGGEST_COLS;
+    const { data, error } = await fetchAll<any>(() =>
+      supabase.from("sunstar_work_entries").select(`id,${cols.join(",")}`).order("id"));
     if (error) return;
     const acc: Record<string, Set<string>> = {};
     (data ?? []).forEach((row: any) => {
@@ -87,7 +122,7 @@ export default function EmployeeEntry() {
       .channel("we-suggestions-live")
       .on("postgres_changes",
         { event: "*", schema: "public", table: "sunstar_work_entries" },
-        () => loadSuggestions())
+        (p: any) => mergeSuggestions(p.new))
       .subscribe();
     return () => { supabase.removeChannel(ch); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -154,17 +189,46 @@ function QueueTab({ flash }: { flash: (m: string, k?: ToastKind) => void }) {
   const [loading, setLoading] = useState(true);
   const [openId, setOpenId] = useState<string | null>(null);
 
+  /**
+   * Silent refresh: the "Loading…" screen only shows on first load (initial state).
+   * Showing it on every refresh used to unmount the open "Fill actuals" forms and
+   * wipe whatever the worker had typed.
+   */
   async function load() {
-    setLoading(true);
-    const { data, error } = await supabase
-      .from("sunstar_work_entries")
-      .select("*")
-      .eq("state", "AWAITING_ACTUAL")
-      .order("created_at", { ascending: true });
+    const { data, error } = await fetchAll<WorkEntry>(() =>
+      supabase
+        .from("sunstar_work_entries")
+        .select("*")
+        .eq("state", "AWAITING_ACTUAL")
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true }));
     if (error) flash(error.message, "error");
-    setRows((data as WorkEntry[]) ?? []);
+    else setRows(data);
     setLoading(false);
   }
+
+  /** Apply one realtime change to the list instead of reloading everything. */
+  const seq = useRef<Record<string, number>>({});
+  async function applyChange(p: any) {
+    const id: string | undefined = p.new?.id ?? p.old?.id;
+    if (!id) return load();
+    const mySeq = (seq.current[id] = (seq.current[id] ?? 0) + 1);
+    if (p.eventType === "DELETE") {
+      setRows((rs) => rs.filter((r) => r.id !== id));
+      return;
+    }
+    const { data, error } = await fetchEntry(id);
+    if (seq.current[id] !== mySeq) return; // a newer change for this row is already being applied
+    if (error) return load();              // network hiccup: resync, never drop the row
+    const fresh = data as WorkEntry | null;
+    setRows((rs) => {
+      if (!fresh || fresh.state !== "AWAITING_ACTUAL") return rs.filter((r) => r.id !== id);
+      const exists = rs.some((r) => r.id === id);
+      const next = exists ? rs.map((r) => (r.id === id ? fresh : r)) : [...rs, fresh];
+      return next.sort(byCreatedAsc);
+    });
+  }
+
   useEffect(() => {
     load();
     const ch = supabase
@@ -172,10 +236,18 @@ function QueueTab({ flash }: { flash: (m: string, k?: ToastKind) => void }) {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "sunstar_work_entries" },
-        () => load(),
+        (p: any) => { applyChange(p); },
       )
       .subscribe();
-    return () => { supabase.removeChannel(ch); };
+    // Tablet woke up / came back online: catch up on anything realtime missed.
+    const onVisible = () => { if (document.visibilityState === "visible") load(); };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("online", load);
+    return () => {
+      supabase.removeChannel(ch);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("online", load);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -183,6 +255,8 @@ function QueueTab({ flash }: { flash: (m: string, k?: ToastKind) => void }) {
     if (!confirm("Delete this queued entry? This cannot be undone.")) return;
     const { error } = await supabase.from("sunstar_work_entries").delete().eq("id", id);
     if (error) return flash(error.message, "error");
+    clearDraft(id);
+    if (openId === id) setOpenId(null);
     flash("Entry deleted", "success");
     load();
   }
@@ -246,21 +320,40 @@ function QueueRow({
   flash: (m: string, k?: ToastKind) => void;
 }) {
   const { employee } = useAuth();
-  const [hours, setHours] = useState<number | "">("");
-  const [checkOut, setCheckOut] = useState<string>(row.check_out_time ?? "");
-  const [breakStart, setBreakStart] = useState<string>(row.break_start_time ?? "");
-  const [breakEnd, setBreakEnd] = useState<string>(row.break_end_time ?? "");
+  // Restore any draft typed earlier on this tablet (survives refresh / reload).
+  const [draft] = useState<Draft | null>(() => readDraft(row.id!));
+  const [hours, setHours] = useState<number | "">(draft?.hours ?? "");
+  const [checkOut, setCheckOut] = useState<string>(draft?.checkOut ?? row.check_out_time ?? "");
+  const [breakStart, setBreakStart] = useState<string>(draft?.breakStart ?? row.break_start_time ?? "");
+  const [breakEnd, setBreakEnd] = useState<string>(draft?.breakEnd ?? row.break_end_time ?? "");
   const [points, setPoints] = useState<Record<string, number>>(() => {
     const init: Record<string, number> = {};
-    POINT_FIELDS.forEach((p) => { init[p.key as string] = 0; });
+    POINT_FIELDS.forEach((p) => { init[p.key as string] = draft?.points?.[p.key as string] ?? 0; });
     return init;
   });
   const [saving, setSaving] = useState(false);
+
+  // Save a draft whenever anything is typed.
+  useEffect(() => {
+    const anyPoints = Object.values(points).some((v) => v);
+    if (hours === "" && !checkOut && !breakStart && !breakEnd && !anyPoints) return;
+    writeDraft(row.id!, { hours, checkOut, breakStart, breakEnd, points });
+  }, [row.id, hours, checkOut, breakStart, breakEnd, points]);
 
   const setPt = (k: string, v: number) => setPoints((p) => ({ ...p, [k]: v }));
 
   async function submit() {
     if (!hours || +hours <= 0) return flash("Enter actual hours (> 0)", "error");
+    const cap = maxHours(row.total_manpower);
+    if (+hours > cap) {
+      return flash(`Actual hours look too high — max ${cap}h for ${row.total_manpower} people`, "error");
+    }
+    const warn = timeWarnings({
+      check_in_time: row.check_in_time, check_out_time: checkOut,
+      break_start_time: breakStart, break_end_time: breakEnd,
+    });
+    if (warn.length && !confirm(`${warn.join(". ")}.\n\nIs this correct (for example a night shift)?`)) return;
+
     setSaving(true);
     const update: any = {
       hours: +hours,
@@ -271,12 +364,20 @@ function QueueRow({
       actual_by_id: employee?.id ?? null,
     };
     POINT_FIELDS.forEach((p) => { update[p.key as string] = points[p.key as string] ?? 0; });
-    const { error } = await supabase
+    // Only update if the job is still waiting for actuals — stops two workers
+    // overwriting each other's submission for the same job.
+    const { error, count } = await supabase
       .from("sunstar_work_entries")
-      .update(update)
-      .eq("id", row.id!);
+      .update(update, { count: "exact" })
+      .eq("id", row.id!)
+      .eq("state", "AWAITING_ACTUAL");
     setSaving(false);
     if (error) return flash(error.message, "error");
+    clearDraft(row.id!);
+    if (count === 0) {
+      flash("This job was already submitted or removed by someone else", "error");
+      return;
+    }
     onFilled();
   }
 
@@ -303,17 +404,17 @@ function QueueRow({
             <span>queued {row.created_at ? relativeAgo(row.created_at) : ""}</span>
           </div>
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="flex items-center gap-4 flex-shrink-0">
           <button
             onClick={(e) => { e.stopPropagation(); onDelete(); }}
-            className="text-red-600 hover:bg-red-50 text-xs font-medium px-2 py-1 rounded"
+            className="min-h-[44px] min-w-[44px] border border-red-200 text-red-600 hover:bg-red-50 text-sm font-medium px-3 rounded-lg"
             title="Delete"
           >
             Delete
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); onToggle(); }}
-            className="bg-brand-blue hover:bg-brand-blueDark text-brand-ink font-semibold px-4 py-2 rounded-lg text-sm"
+            className="min-h-[44px] bg-brand-blue hover:bg-brand-blueDark text-white font-semibold px-4 py-2 rounded-lg text-sm"
           >
             {open ? "Close" : "Fill actuals →"}
           </button>
@@ -358,7 +459,7 @@ function QueueRow({
           <button
             onClick={submit}
             disabled={saving}
-            className="w-full bg-brand-ink hover:bg-black disabled:opacity-50 text-brand-blue font-bold rounded-xl py-4 text-lg shadow"
+            className="w-full bg-brand-ink hover:bg-black disabled:opacity-50 text-white font-bold rounded-xl py-4 text-lg shadow"
           >
             {saving ? "Submitting…" : "✓ Submit for pricing"}
           </button>
@@ -379,7 +480,7 @@ function NewEntryTab({
   suggestions: SuggestionMap;
 }) {
   const { employee } = useAuth();
-  const [form, setForm] = useState<Partial<WorkEntry>>({ ...EMPTY_NEW, check_in_time: currentHHMM() });
+  const [form, setForm] = useState<Partial<WorkEntry>>(() => emptyNew());
   const [saving, setSaving] = useState(false);
 
   function set<K extends keyof WorkEntry>(k: K, v: WorkEntry[K]) {
@@ -391,8 +492,16 @@ function NewEntryTab({
     if (!form.client?.trim()) return flash("Client is required", "error");
     if (!form.description?.trim()) return flash("Description is required", "error");
     if (!form.target_hours || form.target_hours <= 0) return flash("Target hours must be > 0", "error");
-    if (!form.total_manpower || form.total_manpower <= 0) return flash("Total manpower is required", "error");
+    if (!form.total_manpower || form.total_manpower <= 0 || !Number.isInteger(form.total_manpower)) {
+      return flash("Total manpower must be a whole number above 0", "error");
+    }
+    const cap = maxHours(form.total_manpower);
+    if (form.target_hours > cap) {
+      return flash(`Target hours look too high — max ${cap}h for ${form.total_manpower} people`, "error");
+    }
     if (!form.check_in_time) return flash("Check-in time is required", "error");
+    const warn = timeWarnings(form);
+    if (warn.length && !confirm(`${warn.join(". ")}.\n\nIs this correct (for example a night shift)?`)) return;
 
     setSaving(true);
     const payload = {
@@ -403,7 +512,7 @@ function NewEntryTab({
       bedroom_type: form.bedroom_type ?? "3 BR",
       description: form.description,
       floor_type: form.floor_type ?? "SOG",
-      start_date: form.start_date ?? todayISO(),
+      start_date: form.start_date || todayDubai(),
       status: form.status ?? "IN PROGRESS",
       client: form.client,
       target_hours: form.target_hours,
@@ -422,7 +531,7 @@ function NewEntryTab({
     if (error) return flash(error.message, "error");
     flash(`Queued · Villa ${form.villa} · ${form.target_hours}h target`, "success");
     setForm({
-      ...EMPTY_NEW,
+      ...emptyNew(),
       cluster: form.cluster,
       phase: form.phase,
       client: form.client,
@@ -530,7 +639,7 @@ function NewEntryTab({
       <button
         onClick={submit}
         disabled={saving}
-        className="mt-6 w-full bg-brand-blue hover:bg-brand-blueDark disabled:opacity-50 text-brand-ink font-bold rounded-2xl py-5 text-xl shadow-lg active:scale-[.99] transition"
+        className="mt-6 w-full bg-brand-blue hover:bg-brand-blueDark disabled:opacity-50 text-white font-bold rounded-2xl py-5 text-xl shadow-lg active:scale-[.99] transition"
       >
         {saving ? "Queueing…" : "✓ Queue for actuals"}
       </button>
@@ -566,7 +675,13 @@ function NumField({
         step={decimal ? 0.5 : 1}
         required={required}
         value={v === 0 && !required ? "" : v}
-        onChange={(e) => on(decimal ? (parseFloat(e.target.value) || 0) : (parseInt(e.target.value) || 0))}
+        onChange={(e) => {
+          const raw = e.target.value;
+          if (raw === "") return on(0);
+          const n = decimal ? parseFloat(raw) : parseInt(raw, 10);
+          if (!Number.isFinite(n) || n < 0) return; // ignore negatives / junk
+          on(n);
+        }}
         className="w-full border rounded-lg px-3 py-2 text-center font-semibold focus:outline-none focus:ring-4 focus:ring-brand-blue/30 focus:border-brand-blue"
       />
     </label>

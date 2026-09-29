@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase, POINT_FIELDS } from "../lib/supabase";
 import type { WorkEntry, EntryState } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
+import { fetchAll, fetchEntry, timeWarnings, maxHours } from "../lib/data";
 import AdminEmployees from "./AdminEmployees";
 import AdminFinalized from "./AdminFinalized";
 import { StateBadge, relativeAgo } from "../components/StateBadge";
@@ -23,15 +24,46 @@ export default function AdminDashboard() {
     setTimeout(() => setToast(null), 3200);
   };
 
-  async function load() {
-    setLoading(true);
-    const { data, error } = await supabase
-      .from("sunstar_work_entries")
-      .select("*")
-      .order("created_at", { ascending: false });
+  /**
+   * Loads ALL entries, paging past Supabase's 1,000-rows-per-request API cap
+   * so analytics and exports never silently drop older rows.
+   * Only the first load (or the Refresh button) shows the spinner.
+   */
+  async function load(showSpinner = false) {
+    if (showSpinner) setLoading(true);
+    const { data, error } = await fetchAll<WorkEntry>(() =>
+      supabase
+        .from("sunstar_work_entries")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false }));
     if (error) flash(error.message, "error");
-    setRows((data as WorkEntry[]) ?? []);
+    else setRows(data);
     setLoading(false);
+  }
+
+  /** Apply one realtime change instead of reloading every row. */
+  const seq = useRef<Record<string, number>>({});
+  async function applyChange(p: any) {
+    const id: string | undefined = p.new?.id ?? p.old?.id;
+    if (!id) return load();
+    const mySeq = (seq.current[id] = (seq.current[id] ?? 0) + 1);
+    if (p.eventType === "DELETE") {
+      setRows((rs) => rs.filter((r) => r.id !== id));
+      return;
+    }
+    const { data, error } = await fetchEntry(id);
+    if (seq.current[id] !== mySeq) return; // a newer change for this row is already being applied
+    if (error) return load();              // network hiccup: resync, never drop the row
+    const fresh = data as WorkEntry | null;
+    setRows((rs) => {
+      if (!fresh) return rs.filter((r) => r.id !== id);
+      const i = rs.findIndex((r) => r.id === id);
+      if (i === -1) return [fresh, ...rs];
+      const next = [...rs];
+      next[i] = fresh;
+      return next;
+    });
   }
 
   useEffect(() => {
@@ -42,10 +74,19 @@ export default function AdminDashboard() {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "sunstar_work_entries" },
-        () => load()
+        (p: any) => { applyChange(p); }
       )
       .subscribe();
-    return () => { supabase.removeChannel(ch); };
+    // Laptop woke up / came back online: catch up on anything realtime missed.
+    const onVisible = () => { if (document.visibilityState === "visible") load(); };
+    const onOnline = () => load();
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("online", onOnline);
+    return () => {
+      supabase.removeChannel(ch);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("online", onOnline);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -64,7 +105,7 @@ export default function AdminDashboard() {
             </div>
           </div>
           <div className="flex gap-2">
-            <button onClick={load} className="bg-slate-100 hover:bg-slate-200 text-brand-ink px-3.5 py-2 rounded-lg text-sm font-medium">Refresh</button>
+            <button onClick={() => load(true)} className="bg-slate-100 hover:bg-slate-200 text-brand-ink px-3.5 py-2 rounded-lg text-sm font-medium">Refresh</button>
             <button onClick={signOut} className="bg-brand-ink hover:bg-black text-white px-3.5 py-2 rounded-lg text-sm font-medium">Sign out</button>
           </div>
         </div>
@@ -208,14 +249,14 @@ function QueuePanel({
                   {r.state === "AWAITING_PRICE" && (
                     <button
                       onClick={() => setPriceRow(r)}
-                      className="bg-brand-blue hover:bg-brand-blueDark text-brand-ink font-bold px-4 py-2 rounded-lg text-sm shadow"
+                      className="bg-brand-blue hover:bg-brand-blueDark text-white font-bold px-4 py-2 rounded-lg text-sm shadow"
                     >
                       Set price →
                     </button>
                   )}
                   <button
                     onClick={() => setEditRow(r)}
-                    className="border border-brand-ink text-brand-ink hover:bg-brand-ink hover:text-brand-blue font-semibold px-4 py-2 rounded-lg text-sm transition"
+                    className="border border-brand-ink text-brand-ink hover:bg-brand-ink hover:text-white font-semibold px-4 py-2 rounded-lg text-sm transition"
                   >
                     Edit
                   </button>
@@ -271,7 +312,7 @@ function FilterChip({ active, onClick, label }: { active: boolean; onClick: () =
       onClick={onClick}
       className={`text-xs font-medium px-3 py-1.5 rounded-full border transition ${
         active
-          ? "bg-brand-ink text-brand-blue border-brand-ink"
+          ? "bg-brand-ink text-white border-brand-ink"
           : "bg-white text-gray-700 border-gray-200 hover:border-brand-blue"
       }`}
     >
@@ -305,12 +346,20 @@ function PriceModal({
   async function submit() {
     if (!price || +price <= 0) return flash("Enter a valid price", "error");
     setSaving(true);
-    const { error } = await supabase
+    // Only finalize if the entry is still waiting for a price (not deleted,
+    // not already finalized by another admin in a different window).
+    const { error, count } = await supabase
       .from("sunstar_work_entries")
-      .update({ total_price: +price, state: "FINALIZED", priced_by_id: employee?.id ?? null })
-      .eq("id", row.id!);
+      .update({ total_price: +price, state: "FINALIZED", priced_by_id: employee?.id ?? null }, { count: "exact" })
+      .eq("id", row.id!)
+      .eq("state", "AWAITING_PRICE");
     setSaving(false);
     if (error) return flash(error.message, "error");
+    if (count === 0) {
+      flash("This entry was already finalized, changed or deleted — nothing saved", "error");
+      onClose();
+      return;
+    }
     onDone();
   }
 
@@ -336,7 +385,7 @@ function PriceModal({
       <div className="flex justify-end gap-2">
         <button onClick={onClose} className="px-4 py-2 rounded-lg border">Cancel</button>
         <button onClick={submit} disabled={saving}
-          className="px-4 py-2 rounded-lg bg-brand-ink text-brand-blue font-bold disabled:opacity-50">
+          className="px-4 py-2 rounded-lg bg-brand-ink text-white font-bold disabled:opacity-50">
           {saving ? "Saving…" : "Finalize"}
         </button>
       </div>
@@ -360,13 +409,8 @@ function FullEditModal({
     setF((p) => ({ ...p, [k]: v }));
   }
 
-  async function submit() {
-    if (!f.villa?.trim()) return flash("Villa is required", "error");
-    if (!f.client?.trim()) return flash("Client is required", "error");
-    if (!f.description?.trim()) return flash("Description is required", "error");
-    if (!f.target_hours || Number(f.target_hours) <= 0) return flash("Target hours must be > 0", "error");
-
-    setSaving(true);
+  /** Full patch built from the form (same shape as before). */
+  function buildPatch(): Record<string, any> {
     const patch: any = {
       cluster: f.cluster ?? "",
       phase: f.phase ?? "",
@@ -393,20 +437,75 @@ function FullEditModal({
     });
     // Admin can also adjust price on a not-yet-finalized row if they want
     if (f.total_price != null && f.total_price !== ("" as any)) patch.total_price = Number(f.total_price);
+    return patch;
+  }
 
-    const { error } = await supabase
+  /** Only the fields the admin actually changed in this window. */
+  function changedPatch(): Record<string, any> {
+    const full = buildPatch();
+    const out: Record<string, any> = {};
+    for (const k of Object.keys(full)) {
+      if (normField(k, full[k]) !== normField(k, (row as any)[k])) out[k] = full[k];
+    }
+    return out;
+  }
+
+  const dirty = Object.keys(changedPatch()).length > 0;
+
+  function requestClose() {
+    if (dirty && !confirm("Discard your unsaved changes to this entry?")) return;
+    onClose();
+  }
+
+  async function submit() {
+    if (!f.villa?.trim()) return flash("Villa is required", "error");
+    if (!f.client?.trim()) return flash("Client is required", "error");
+    if (!f.description?.trim()) return flash("Description is required", "error");
+    if (!f.target_hours || Number(f.target_hours) <= 0) return flash("Target hours must be > 0", "error");
+    const nums: [string, unknown][] = [
+      ["Target hours", f.target_hours], ["Actual hours", f.hours],
+      ["Total manpower", f.total_manpower], ["Total price", f.total_price],
+      ...POINT_FIELDS.map((p) => [p.label, (f as any)[p.key]] as [string, unknown]),
+    ];
+    const neg = nums.find(([, v]) => v != null && (v as any) !== "" && Number(v) < 0);
+    if (neg) return flash(`${neg[0]} cannot be negative`, "error");
+    const cap = maxHours(f.total_manpower);
+    if (Number(f.target_hours) > cap) return flash(`Target hours look too high — max ${cap}h for ${f.total_manpower} people`, "error");
+    if (f.hours != null && (f.hours as any) !== "" && Number(f.hours) > cap) {
+      return flash(`Actual hours look too high — max ${cap}h for ${f.total_manpower} people`, "error");
+    }
+    const warn = timeWarnings(f);
+    if (warn.length && !confirm(`${warn.join(". ")}.\n\nSave anyway (for example a night shift)?`)) return;
+
+    const patch = changedPatch();
+    if (Object.keys(patch).length === 0) { onClose(); return; }
+
+    setSaving(true);
+    // Conditional save: only succeeds if every field being changed still holds
+    // the value it had when this window opened. If an employee submitted actuals
+    // (or another admin edited) in the meantime, nothing is overwritten.
+    let q = supabase
       .from("sunstar_work_entries")
-      .update(patch)
+      .update(patch, { count: "exact" })
       .eq("id", row.id!);
+    for (const k of Object.keys(patch)) {
+      const orig = (row as any)[k];
+      q = orig == null ? q.is(k, null) : q.eq(k, orig);
+    }
+    const { error, count } = await q;
     setSaving(false);
     if (error) return flash(error.message, "error");
+    if (count === 0) {
+      flash("Someone updated this entry while you were editing — close and reopen it to see the latest, then redo your change", "error");
+      return;
+    }
     onDone();
   }
 
   const cx = "w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-brand-blue";
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={requestClose}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
         {/* Sticky header */}
         <div className="p-6 border-b flex items-start justify-between flex-shrink-0">
@@ -416,7 +515,7 @@ function FullEditModal({
               Admin full edit · every field is editable. Changes save on Save.
             </div>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-brand-ink text-2xl leading-none">×</button>
+          <button onClick={requestClose} aria-label="Close" className="text-gray-400 hover:text-brand-ink text-2xl leading-none">×</button>
         </div>
 
         {/* Scrollable body */}
@@ -493,7 +592,11 @@ function FullEditModal({
                     <input
                       type="number" min={0} step={p.decimal ? "0.01" : "1"}
                       value={val === 0 ? "" : val}
-                      onChange={(e) => set(k as any, (p.decimal ? parseFloat(e.target.value) : parseInt(e.target.value)) || 0)}
+                      onChange={(e) => {
+                        const n = (p.decimal ? parseFloat(e.target.value) : parseInt(e.target.value, 10)) || 0;
+                        if (n < 0) return; // ignore negatives
+                        set(k as any, n);
+                      }}
                       className={`${cx} text-center font-semibold`}
                     />
                   </FE>
@@ -505,15 +608,34 @@ function FullEditModal({
 
         {/* Sticky footer */}
         <div className="p-4 border-t flex justify-end gap-2 flex-shrink-0 bg-white rounded-b-2xl">
-          <button onClick={onClose} className="px-4 py-2 rounded-lg border">Cancel</button>
+          <button onClick={requestClose} className="px-4 py-2 rounded-lg border">Cancel</button>
           <button onClick={submit} disabled={saving}
-            className="px-5 py-2 rounded-lg bg-brand-ink text-brand-blue font-bold disabled:opacity-50">
+            className="px-5 py-2 rounded-lg bg-brand-ink text-white font-bold disabled:opacity-50">
             {saving ? "Saving…" : "Save all changes"}
           </button>
         </div>
       </div>
     </div>
   );
+}
+
+/* Normalise a field value so "unchanged" compares equal regardless of format
+   (e.g. DB time "08:00:00" vs input "08:00", null vs "", 0 vs null for point counts). */
+const TIME_KEYS = new Set(["check_in_time", "check_out_time", "break_start_time", "break_end_time"]);
+const NUM_KEYS = new Set(["target_hours", "hours", "total_manpower", "total_price"]);
+const POINT_KEYS = new Set(POINT_FIELDS.map((p) => p.key as string));
+function normField(k: string, v: unknown): string | number | null {
+  if (POINT_KEYS.has(k)) {
+    const n = Number(v ?? 0);
+    return Number.isFinite(n) ? n : 0;
+  }
+  if (v === undefined || v === null || v === "") return null;
+  if (TIME_KEYS.has(k)) return String(v).slice(0, 5);
+  if (NUM_KEYS.has(k)) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  return String(v).trim();
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {

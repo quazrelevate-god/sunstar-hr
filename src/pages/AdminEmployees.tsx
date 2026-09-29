@@ -130,7 +130,7 @@ export default function AdminEmployees() {
         </div>
         <button
           onClick={() => setShowForm((v) => !v)}
-          className="bg-brand-blue hover:bg-brand-blueDark text-brand-ink font-semibold px-4 py-2 rounded-lg"
+          className="bg-brand-blue hover:bg-brand-blueDark text-white font-semibold px-4 py-2 rounded-lg"
         >
           {showForm ? "Cancel" : "+ New employee"}
         </button>
@@ -176,7 +176,7 @@ export default function AdminEmployees() {
           </Field>
           <div className="flex items-end">
             <button disabled={creating}
-              className="w-full bg-brand-ink text-brand-blue disabled:opacity-50 font-bold px-4 py-2 rounded-lg">
+              className="w-full bg-brand-ink text-white disabled:opacity-50 font-bold px-4 py-2 rounded-lg">
               {creating ? "Creating…" : "Create login"}
             </button>
           </div>
@@ -209,7 +209,7 @@ export default function AdminEmployees() {
                   <td className="px-4 py-3 text-gray-600">{r.employee_code}</td>
                   <td className="px-4 py-3">
                     <span className={`text-xs px-2 py-1 rounded-full font-medium ${
-                      r.role === "admin" ? "bg-brand-ink text-brand-blue" : "bg-brand-blue text-brand-ink"
+                      r.role === "admin" ? "bg-brand-ink text-white" : "bg-brand-blue text-white"
                     }`}>{r.role}</span>
                   </td>
                   <td className="px-4 py-3">
@@ -265,7 +265,7 @@ export default function AdminEmployees() {
             <button onClick={() => { setResetFor(null); setNewPw(""); }}
               className="px-4 py-2 rounded-lg border">Cancel</button>
             <button onClick={doReset} disabled={resetting || newPw.length < 6}
-              className="px-4 py-2 rounded-lg bg-brand-ink text-brand-blue font-bold disabled:opacity-50">
+              className="px-4 py-2 rounded-lg bg-brand-ink text-white font-bold disabled:opacity-50">
               {resetting ? "Saving…" : "Reset password"}
             </button>
           </div>

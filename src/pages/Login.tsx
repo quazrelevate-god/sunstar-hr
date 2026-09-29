@@ -109,7 +109,7 @@ export default function Login() {
 
               <button
                 disabled={busy}
-                className="w-full bg-brand-blue hover:bg-brand-blueDark disabled:opacity-50 text-brand-ink font-semibold rounded-xl py-3.5 tracking-wide transition"
+                className="w-full bg-brand-blue hover:bg-brand-blueDark disabled:opacity-50 text-white font-semibold rounded-xl py-3.5 tracking-wide transition"
               >
                 {busy ? "Signing in…" : "SIGN IN"}
               </button>
