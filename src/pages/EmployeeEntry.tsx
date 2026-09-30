@@ -487,7 +487,12 @@ function NewEntryTab({
     setForm((f) => ({ ...f, [k]: v }));
   }
 
+  /** Ref-based lock: prevents a rapid double-tap from firing two inserts before
+   *  React's setSaving(true) actually disables the button. */
+  const submitting = useRef(false);
+
   async function submit() {
+    if (submitting.current) return;
     if (!form.villa?.trim()) return flash("Villa is required", "error");
     if (!form.client?.trim()) return flash("Client is required", "error");
     if (!form.description?.trim()) return flash("Description is required", "error");
@@ -503,6 +508,39 @@ function NewEntryTab({
     const warn = timeWarnings(form);
     if (warn.length && !confirm(`${warn.join(". ")}.\n\nIs this correct (for example a night shift)?`)) return;
 
+    // Duplicate check: warn if there's already an entry for the same
+    // villa + client + start_date in ANY state. Prevents the common "manager
+    // re-types the same job the next morning without realising it's already
+    // logged" mistake seen in production. User can still confirm to proceed.
+    const villa = form.villa.trim();
+    const client = form.client.trim();
+    const startDate = form.start_date || todayDubai();
+    const { data: dups, error: dupErr } = await supabase
+      .from("sunstar_work_entries")
+      .select("id, state, hours, target_hours, created_at")
+      .ilike("villa", villa)
+      .ilike("client", client)
+      .eq("start_date", startDate)
+      .limit(3);
+    if (dupErr) {
+      // Non-blocking: if the check fails for any reason, proceed with insert.
+      // The DB will still take the row, and the admin can clean up if needed.
+      console.warn("Duplicate check failed:", dupErr.message);
+    } else if (dups && dups.length > 0) {
+      const stateLabel = (s: string) =>
+        s === "AWAITING_ACTUAL" ? "waiting for actual hours"
+        : s === "AWAITING_PRICE" ? "waiting for price"
+        : "already finalized";
+      const lines = dups.map((d) =>
+        `• ${stateLabel(d.state)} · target ${d.target_hours ?? "?"}h`
+      ).join("\n");
+      const okDup = confirm(
+        `Villa ${villa} for "${client}" on ${startDate} already exists (${dups.length}):\n\n${lines}\n\nCreate ANOTHER entry anyway?`
+      );
+      if (!okDup) return;
+    }
+
+    submitting.current = true;
     setSaving(true);
     const payload = {
       state: "AWAITING_ACTUAL",
@@ -528,6 +566,7 @@ function NewEntryTab({
     };
     const { error } = await supabase.from("sunstar_work_entries").insert(payload);
     setSaving(false);
+    submitting.current = false;
     if (error) return flash(error.message, "error");
     flash(`Queued · Villa ${form.villa} · ${form.target_hours}h target`, "success");
     setForm({

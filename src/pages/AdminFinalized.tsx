@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import { supabase, POINT_FIELDS } from "../lib/supabase";
 import type { WorkEntry, SavedFilter, Condition, FilterCol } from "../lib/supabase";
@@ -9,6 +9,7 @@ import { ClientMetricsChart } from "../components/ClientMetricsChart";
 import { CompanyRatioPanel } from "../components/CompanyRatioPanel";
 import { Toast } from "../components/Toast";
 import type { ToastKind } from "../components/Toast";
+import { FullEditModal } from "../components/FullEditModal";
 
 const PAGE_SIZE = 50;
 const TEXT_COLS: FilterCol[] = [
@@ -33,6 +34,39 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
   const [askSave, setAskSave] = useState(false);
   const [page, setPage] = useState(0);
   const [toast, setToast] = useState<{ msg: string; kind: ToastKind } | null>(null);
+
+  // Row-level actions on the finalized entries table
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [editRow, setEditRow] = useState<WorkEntry | null>(null);
+  const [confirmDeleteRow, setConfirmDeleteRow] = useState<WorkEntry | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  // Close row menu on outside click / escape
+  const menuHost = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!openMenuId) return;
+    const onDown = (e: MouseEvent) => {
+      if (menuHost.current && !menuHost.current.contains(e.target as Node)) setOpenMenuId(null);
+    };
+    const onEsc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpenMenuId(null); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onEsc);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onEsc);
+    };
+  }, [openMenuId]);
+
+  async function deleteFinalized(r: WorkEntry) {
+    if (!r.id) return;
+    setDeleting(true);
+    const { error } = await supabase.from("sunstar_work_entries").delete().eq("id", r.id);
+    setDeleting(false);
+    if (error) return flash(error.message, "error");
+    setConfirmDeleteRow(null);
+    setOpenMenuId(null);
+    flash(`Deleted Villa ${r.villa}`, "success");
+  }
   const flash = (msg: string, kind: ToastKind = "info") => {
     setToast({ msg, kind });
     setTimeout(() => setToast(null), 3200);
@@ -347,14 +381,14 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
               <table className="min-w-full text-sm">
                 <thead className="bg-gray-50 text-gray-600 text-xs uppercase sticky top-0 z-10">
                   <tr>
-                    {["#","Cluster","Phase","Villa","Apt","BR","Desc","Fl","Start","End","Target","Actual","Price","AED/hr","PS","GI","D","Tel","L","FCU","DB","Client","Employee"].map((h) => (
+                    {["#","Cluster","Phase","Villa","Apt","BR","Desc","Fl","Start","End","Target","Actual","Price","AED/hr","PS","GI","D","Tel","L","FCU","DB","Client","Employee",""].map((h) => (
                       <th key={h} className="px-3 py-2 text-left whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {pageRows.length === 0 ? (
-                    <tr><td className="p-10 text-center text-gray-400" colSpan={23}>No matching entries.</td></tr>
+                    <tr><td className="p-10 text-center text-gray-400" colSpan={24}>No matching entries.</td></tr>
                   ) : pageRows.map((r, i) => {
                     const tone = rateTone(r);
                     return (
@@ -386,6 +420,42 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
                         <td className="px-3 py-2">{r.db_conduit}</td>
                         <td className="px-3 py-2">{r.client}</td>
                         <td className="px-3 py-2 text-xs text-gray-500">{r.employee_name}</td>
+                        <td className="px-2 py-2 relative">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setOpenMenuId(openMenuId === r.id ? null : (r.id ?? null));
+                            }}
+                            aria-label={`Row actions for Villa ${r.villa}`}
+                            aria-haspopup="menu"
+                            aria-expanded={openMenuId === r.id}
+                            className="inline-flex items-center justify-center w-8 h-8 rounded-full text-gray-500 hover:bg-gray-100 hover:text-brand-ink"
+                          >
+                            ⋯
+                          </button>
+                          {openMenuId === r.id && (
+                            <div
+                              ref={menuHost}
+                              role="menu"
+                              className="absolute right-2 top-full mt-1 z-20 min-w-[10rem] bg-white border border-gray-200 rounded-lg shadow-lg py-1"
+                            >
+                              <button
+                                role="menuitem"
+                                onClick={() => { setOpenMenuId(null); setEditRow(r); }}
+                                className="block w-full text-left px-3 py-2 text-sm hover:bg-brand-blueSoft text-brand-ink"
+                              >
+                                ✎ Edit entry
+                              </button>
+                              <button
+                                role="menuitem"
+                                onClick={() => { setOpenMenuId(null); setConfirmDeleteRow(r); }}
+                                className="block w-full text-left px-3 py-2 text-sm hover:bg-red-50 text-red-700"
+                              >
+                                🗑 Delete entry
+                              </button>
+                            </div>
+                          )}
+                        </td>
                       </tr>
                     );
                   })}
@@ -429,6 +499,40 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
               <button onClick={saveAsNew} disabled={savingView}
                 className="px-4 py-2 rounded-lg bg-brand-ink text-white font-bold disabled:opacity-50">
                 {savingView ? "Saving…" : "Save view"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editRow && (
+        <FullEditModal
+          row={editRow}
+          onClose={() => setEditRow(null)}
+          onDone={() => { setEditRow(null); flash("Entry updated", "success"); }}
+          flash={flash}
+        />
+      )}
+
+      {confirmDeleteRow && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setConfirmDeleteRow(null)}>
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+            <div className="text-lg font-bold text-brand-ink mb-2">Delete Villa {confirmDeleteRow.villa}?</div>
+            <div className="text-sm text-gray-600 mb-1">
+              {confirmDeleteRow.description} · {confirmDeleteRow.client}
+              {confirmDeleteRow.start_date ? ` · ${confirmDeleteRow.start_date}` : ""}
+            </div>
+            <div className="text-sm text-gray-600 mb-5">
+              This will remove the entry permanently — analytics, exports and saved views will no longer include it. This cannot be undone.
+            </div>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setConfirmDeleteRow(null)} className="px-4 py-2 rounded-lg border">Cancel</button>
+              <button
+                onClick={() => deleteFinalized(confirmDeleteRow)}
+                disabled={deleting}
+                className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold disabled:opacity-50"
+              >
+                {deleting ? "Deleting…" : "Delete entry"}
               </button>
             </div>
           </div>
