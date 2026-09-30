@@ -97,7 +97,7 @@ export default function AdminDashboard() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-sky-50 via-white to-blue-50/40">
       <header className="bg-white border-b border-slate-200/70 shadow-card">
-        <div className="max-w-[1400px] mx-auto px-6 py-3 flex items-center justify-between">
+        <div className="max-w-[1800px] mx-auto px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Logo size="sm" />
             <div className="border-l border-slate-200 pl-3">
@@ -111,7 +111,7 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        <div className="max-w-[1400px] mx-auto px-6">
+        <div className="max-w-[1800px] mx-auto px-6">
           <nav className="flex gap-1">
             {(["queue", "finalized", "employees"] as Tab[]).map((t) => (
               <button
@@ -134,7 +134,7 @@ export default function AdminDashboard() {
 
       {toast && <Toast msg={toast.msg} kind={toast.kind} />}
 
-      <main className="max-w-[1400px] mx-auto p-6">
+      <main className="max-w-[1800px] mx-auto p-6">
         {tab === "employees" && <AdminEmployees />}
         {tab === "queue" && (
           <QueuePanel rows={queue} loading={loading} reload={load} flash={flash} />

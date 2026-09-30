@@ -249,7 +249,7 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
       {toast && <Toast msg={toast.msg} kind={toast.kind} />}
 
       {/* THREE-column grid on desktop: [Views | Charts | Table] */}
-      <div className="grid gap-4 xl:h-full grid-cols-1 xl:grid-cols-[220px_minmax(380px,32%)_minmax(0,1fr)]">
+      <div className="grid gap-4 xl:h-full grid-cols-1 xl:grid-cols-[200px_360px_minmax(0,1fr)]">
         {/* LEFT: Views sidebar (scrolls internally if long) */}
         <aside className="bg-white rounded-2xl shadow-sm p-3 overflow-y-auto">
           <div className="text-xs font-bold text-gray-500 uppercase tracking-wide px-2 mb-2">Views</div>
