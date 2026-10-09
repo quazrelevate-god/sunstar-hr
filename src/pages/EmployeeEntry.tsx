@@ -145,33 +145,33 @@ export default function EmployeeEntry() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-sky-50 via-white to-blue-50/40">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 shadow-card">
-        <div className="max-w-6xl mx-auto flex items-center justify-between px-6 py-3">
-          <div className="flex items-center gap-3">
+      <header className="bg-white border-b border-gray-200 shadow-card sticky top-0 z-20">
+        <div className="max-w-6xl mx-auto flex items-center justify-between px-4 md:px-6 py-3 gap-3">
+          <div className="flex items-center gap-2 min-w-0">
             <Logo size="sm" />
-            <div className="border-l border-gray-200 pl-3">
+            <div className="border-l border-gray-200 pl-2 min-w-0">
               <div className="font-semibold text-brand-ink text-sm">Work Portal</div>
-              <div className="text-xs text-gray-500">
+              <div className="text-xs text-gray-500 truncate">
                 {employee?.full_name} · {employee?.employee_code}
               </div>
             </div>
           </div>
           <button
             onClick={() => { clearAllDrafts(); signOut(); }}
-            className="bg-brand-ink hover:bg-black text-white px-4 py-2 rounded-lg text-sm font-medium"
+            className="bg-brand-ink hover:bg-black text-white px-3 py-2 rounded-lg text-sm font-medium flex-shrink-0"
           >
             Sign out
           </button>
         </div>
 
-        {/* Tabs */}
-        <div className="max-w-6xl mx-auto px-6">
+        {/* Tabs — big tap targets, equal-width on mobile */}
+        <div className="max-w-6xl mx-auto px-4 md:px-6">
           <nav className="flex gap-1">
             {(["queue", "new"] as Tab[]).map((t) => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
-                className={`px-4 py-3 text-sm font-semibold border-b-2 -mb-px transition ${
+                className={`flex-1 sm:flex-none px-4 py-3 text-sm font-semibold border-b-2 -mb-px transition ${
                   tab === t
                     ? "border-brand-blue text-brand-blue"
                     : "border-transparent text-gray-500 hover:text-brand-ink"
@@ -400,17 +400,17 @@ function QueueRow({
 
   return (
     <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
-      {/* Row summary */}
-      <div className="flex items-center gap-3 p-4 md:p-5 cursor-pointer" onClick={onToggle}>
+      {/* Row summary — stacks on mobile so the summary never collides with the buttons */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 p-4 md:p-5 cursor-pointer" onClick={onToggle}>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <div className="font-bold text-brand-ink">
+            <div className="font-bold text-brand-ink text-base">
               Villa {row.villa}
               <span className="text-gray-400 font-normal"> · {row.cluster}{row.phase ? ` · ${row.phase}` : ""}</span>
             </div>
             <StateBadge state={row.state} />
           </div>
-          <div className="text-sm text-gray-500 mt-0.5 truncate">
+          <div className="text-sm text-gray-500 mt-0.5 break-words">
             {row.description} · {row.bedroom_type} · {row.floor_type} · Client: {row.client || "—"}
             {row.apartment_number ? ` · Apt ${row.apartment_number}` : ""}
           </div>
@@ -421,7 +421,7 @@ function QueueRow({
             <span>queued {row.created_at ? relativeAgo(row.created_at) : ""}</span>
           </div>
         </div>
-        <div className="flex items-center gap-4 flex-shrink-0">
+        <div className="flex items-center gap-2 flex-shrink-0">
           <button
             onClick={(e) => { e.stopPropagation(); onDelete(); }}
             className="min-h-[44px] min-w-[44px] border border-red-200 text-red-600 hover:bg-red-50 text-sm font-medium px-3 rounded-lg"
@@ -431,7 +431,7 @@ function QueueRow({
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); onToggle(); }}
-            className="min-h-[44px] bg-brand-blue hover:bg-brand-blueDark text-white font-semibold px-4 py-2 rounded-lg text-sm"
+            className="min-h-[44px] flex-1 sm:flex-none bg-brand-blue hover:bg-brand-blueDark text-white font-semibold px-4 py-2 rounded-lg text-sm"
           >
             {open ? "Close" : "Fill actuals →"}
           </button>
@@ -440,25 +440,25 @@ function QueueRow({
 
       {/* Expanded form */}
       {open && (
-        <div className="border-t bg-brand-blueSoft/40 p-5 space-y-4">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="border-t bg-brand-blueSoft/40 p-4 md:p-5 space-y-4">
+          <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-3">
             <NumField required label="Actual Hours *" v={hours} on={setHours as any} decimal />
             <Field label="Check-out">
               <input type="time" value={checkOut} onChange={(e) => setCheckOut(e.target.value)}
-                className="w-full border rounded-lg px-3 py-2" />
+                className="w-full border rounded-lg px-3 py-3 text-base" />
             </Field>
             <Field label="Break start">
               <input type="time" value={breakStart} onChange={(e) => setBreakStart(e.target.value)}
-                className="w-full border rounded-lg px-3 py-2" />
+                className="w-full border rounded-lg px-3 py-3 text-base" />
             </Field>
             <Field label="Break end">
               <input type="time" value={breakEnd} onChange={(e) => setBreakEnd(e.target.value)}
-                className="w-full border rounded-lg px-3 py-2" />
+                className="w-full border rounded-lg px-3 py-3 text-base" />
             </Field>
           </div>
           <div>
             <div className="text-xs font-semibold text-gray-500 mb-2">Point Counts</div>
-            <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
               {POINT_FIELDS.map((p) => (
                 <NumField
                   key={p.key as string}
@@ -594,54 +594,53 @@ function NewEntryTab({
   }
 
   const cx = (extra = "") =>
-    `w-full border rounded-xl px-4 py-3 focus:outline-none focus:ring-4 focus:ring-brand-blue/30 focus:border-brand-blue ${extra}`;
+    `w-full border rounded-xl px-4 py-3 text-base focus:outline-none focus:ring-4 focus:ring-brand-blue/30 focus:border-brand-blue ${extra}`;
 
   return (
-    <div className="bg-white rounded-3xl shadow-lg p-6 tap-lg">
-      <div className="flex items-baseline justify-between mb-4">
-        <div>
-          <h1 className="text-2xl font-bold text-brand-ink font-serif">New Morning Entry</h1>
-          <div className="text-sm text-gray-500">
-            Enter the job identifiers and target hours. Actual hours & points are filled later, from the Queue tab.
-          </div>
+    <div className="bg-white rounded-2xl md:rounded-3xl shadow-lg p-4 md:p-6 tap-lg">
+      <div className="mb-4">
+        <h1 className="text-xl md:text-2xl font-bold text-brand-ink font-serif">New Morning Entry</h1>
+        <div className="text-xs md:text-sm text-gray-500 mt-1">
+          Enter the job identifiers and target hours. Actual hours and points are filled later from the Queue tab.
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+      {/* Mobile-first grid: 1 column on phones, 2 on larger phones, 3 on tablet+ */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         <Field label="Cluster">
           <SuggestInput value={form.cluster ?? ""} onChange={(v) => set("cluster", v)}
-            className={cx()} placeholder="e.g. V-14" options={suggestions.cluster ?? []} listId="s-cluster" />
+            className={cx()} placeholder="e.g. V-14" options={suggestions.cluster ?? []} />
         </Field>
         <Field label="Phase">
           <SuggestInput value={form.phase ?? ""} onChange={(v) => set("phase", v)}
-            className={cx()} placeholder="e.g. PH-2" options={suggestions.phase ?? []} listId="s-phase" />
+            className={cx()} placeholder="e.g. PH-2" options={suggestions.phase ?? []} />
         </Field>
         <Field label="Villa *">
           <SuggestInput value={form.villa ?? ""} onChange={(v) => set("villa", v)}
-            className={cx()} placeholder="e.g. 101" options={suggestions.villa ?? []} listId="s-villa" />
+            className={cx()} placeholder="e.g. 101" options={suggestions.villa ?? []} />
         </Field>
 
         <Field label="Bedroom">
           <SuggestInput value={form.bedroom_type ?? ""} onChange={(v) => set("bedroom_type", v)}
-            className={cx()} placeholder="e.g. 3 BR" options={suggestions.bedroom_type ?? []} listId="s-bedroom" />
+            className={cx()} placeholder="e.g. 3 BR" options={suggestions.bedroom_type ?? []} />
         </Field>
         <Field label="Floor">
           <SuggestInput value={form.floor_type ?? ""} onChange={(v) => set("floor_type", v)}
-            className={cx()} placeholder="e.g. SOG" options={suggestions.floor_type ?? []} listId="s-floor" />
+            className={cx()} placeholder="e.g. SOG" options={suggestions.floor_type ?? []} />
         </Field>
         <Field label="Description *">
           <SuggestInput value={form.description ?? ""} onChange={(v) => set("description", v)}
-            className={cx()} placeholder="e.g. Slab Conduiting" options={suggestions.description ?? []} listId="s-desc" />
+            className={cx()} placeholder="e.g. Slab Conduiting" options={suggestions.description ?? []} />
         </Field>
 
         <Field label="Client *">
           <SuggestInput value={form.client ?? ""} onChange={(v) => set("client", v)}
-            className={cx()} placeholder="Client / project" options={suggestions.client ?? []} listId="s-client" />
+            className={cx()} placeholder="Client / project" options={suggestions.client ?? []} />
         </Field>
         <Field label="Status">
-          <select value={form.status ?? "IN PROGRESS"} onChange={(e) => set("status", e.target.value)} className={cx()}>
-            {STATUS_OPTS.map((o) => <option key={o}>{o}</option>)}
-          </select>
+          <SuggestInput value={form.status ?? ""} onChange={(v) => set("status", v)}
+            className={cx()} placeholder="e.g. IN PROGRESS"
+            options={Array.from(new Set([...(suggestions.status ?? []), ...STATUS_OPTS]))} />
         </Field>
         <Field label="Start Date">
           <input type="date" value={form.start_date ?? ""} onChange={(e) => set("start_date", e.target.value)} className={cx()} />
@@ -649,22 +648,28 @@ function NewEntryTab({
 
         <Field label="Apartment">
           <SuggestInput value={form.apartment_number ?? ""} onChange={(v) => set("apartment_number", v)}
-            className={cx()} placeholder="e.g. 12A (optional)" options={suggestions.apartment_number ?? []} listId="s-apt" />
+            className={cx()} placeholder="e.g. 12A (optional)" options={suggestions.apartment_number ?? []} />
         </Field>
         <Field label="Total Manpower *">
           <input
-            type="number" inputMode="numeric" min={1} step={1}
+            type="text" inputMode="numeric" pattern="[0-9]*"
             value={form.total_manpower ?? ""}
-            onChange={(e) => set("total_manpower", e.target.value ? parseInt(e.target.value) : null)}
+            onChange={(e) => {
+              const raw = e.target.value.replace(/[^0-9]/g, "");
+              set("total_manpower", raw ? parseInt(raw, 10) : null);
+            }}
             className={cx("font-semibold")}
             placeholder="e.g. 4"
           />
         </Field>
         <Field label="Target Hours *">
           <input
-            type="number" inputMode="decimal" min={0} step={0.5}
+            type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*"
             value={form.target_hours ?? ""}
-            onChange={(e) => set("target_hours", e.target.value ? parseFloat(e.target.value) : null)}
+            onChange={(e) => {
+              const raw = e.target.value.replace(/[^0-9.]/g, "");
+              set("target_hours", raw ? parseFloat(raw) : null);
+            }}
             className={cx("font-semibold")}
             placeholder="e.g. 25"
           />
@@ -673,14 +678,14 @@ function NewEntryTab({
         <Field label="Check-in *">
           <input type="time" value={form.check_in_time ?? ""} onChange={(e) => set("check_in_time", e.target.value)} className={cx()} />
         </Field>
-        <Field label="Check-out (optional)">
+        <Field label="Check-out">
           <input type="time" value={form.check_out_time ?? ""} onChange={(e) => set("check_out_time", e.target.value)} className={cx()} />
         </Field>
-        <div />
-        <Field label="Break start (optional)">
+        <div className="hidden lg:block" />
+        <Field label="Break start">
           <input type="time" value={form.break_start_time ?? ""} onChange={(e) => set("break_start_time", e.target.value)} className={cx()} />
         </Field>
-        <Field label="Break end (optional)">
+        <Field label="Break end">
           <input type="time" value={form.break_end_time ?? ""} onChange={(e) => set("break_end_time", e.target.value)} className={cx()} />
         </Field>
       </div>
@@ -731,36 +736,93 @@ function NumField({
           if (!Number.isFinite(n) || n < 0) return; // ignore negatives / junk
           on(n);
         }}
-        className="w-full border rounded-lg px-3 py-2 text-center font-semibold focus:outline-none focus:ring-4 focus:ring-brand-blue/30 focus:border-brand-blue"
+        className="w-full border rounded-lg px-3 py-3 text-center text-base font-semibold focus:outline-none focus:ring-4 focus:ring-brand-blue/30 focus:border-brand-blue"
       />
     </label>
   );
 }
 
-/** Free text input with an attached <datalist> for autocomplete suggestions */
+/** Free-text input with a touch-friendly suggestions popover.
+ *
+ * Opens on focus/tap and shows the most-recently-used values from history
+ * (that match whatever is typed so far). Chosen because the native
+ * <datalist> is inconsistent across mobile browsers and doesn't always
+ * fire on tap-to-open. The popover closes on outside click, Escape, or
+ * when the input blurs to something outside the wrapper.
+ *
+ * The `listId` prop is accepted but unused — kept so existing call-sites
+ * compile without edits.
+ */
 function SuggestInput({
-  value, onChange, className, placeholder, options, listId,
+  value, onChange, className, placeholder, options, listId: _listId,
+  inputMode, pattern,
 }: {
   value: string;
   onChange: (v: string) => void;
   className?: string;
   placeholder?: string;
   options: string[];
-  listId: string;
+  listId?: string;
+  inputMode?: "text" | "numeric" | "decimal" | "tel" | "email" | "url" | "search";
+  pattern?: string;
 }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDoc(e: MouseEvent) {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) { if (e.key === "Escape") setOpen(false); }
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const q = value.trim().toLowerCase();
+  const matches = (q
+    ? options.filter((o) => o.toLowerCase().includes(q) && o.toLowerCase() !== q)
+    : options
+  ).slice(0, 8);
+
   return (
-    <>
+    <div className="relative" ref={wrapRef}>
       <input
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) => { onChange(e.target.value); if (!open) setOpen(true); }}
+        onFocus={() => setOpen(true)}
         className={className}
         placeholder={placeholder}
-        list={listId}
         autoComplete="off"
+        inputMode={inputMode}
+        pattern={pattern}
       />
-      <datalist id={listId}>
-        {options.map((o) => <option key={o} value={o} />)}
-      </datalist>
-    </>
+      {open && matches.length > 0 && (
+        <ul
+          role="listbox"
+          className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-30 max-h-60 overflow-auto py-1"
+        >
+          {matches.map((o) => (
+            <li key={o}>
+              <button
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  onChange(o);
+                  setOpen(false);
+                }}
+                className="w-full text-left px-4 py-3 text-base hover:bg-brand-blueSoft active:bg-brand-blueSoft/70 text-brand-ink"
+              >
+                {o}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

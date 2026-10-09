@@ -381,7 +381,7 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
               <table className="min-w-full text-sm">
                 <thead className="bg-gray-50 text-gray-600 text-xs uppercase sticky top-0 z-10">
                   <tr>
-                    {["#","Cluster","Phase","Villa","Apt","BR","Desc","Fl","Start","End","Target","Actual","Price","AED/hr","PS","GI","D","Tel","L","FCU","DB","Client","Employee",""].map((h) => (
+                    {["#","Cluster","Phase","Villa","Apt","BR","Desc","Fl","Start","End","Target","Actual","Price","AED/hr","PS","GI","20mm","25mm","32mm","50mm","DB","Client","Employee",""].map((h) => (
                       <th key={h} className="px-3 py-2 text-left whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
