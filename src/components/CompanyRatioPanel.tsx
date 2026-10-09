@@ -96,50 +96,43 @@ export function CompanyRatioPanel({ rows }: { rows: WorkEntry[] }) {
 
   return (
     <section className="rounded-2xl border border-slate-200/70 bg-white/70 backdrop-blur-sm shadow-card overflow-hidden">
-      {/* Header */}
-      <header className="px-5 pt-4 pb-3 border-b border-slate-100 flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <div className="text-[11px] uppercase tracking-[0.14em] font-semibold text-slate-500">
-            Company-wise ratio
-          </div>
-          <h3 className="mt-1 text-lg font-serif text-brand-ink leading-tight">
-            Which clients are profitable?
-          </h3>
-          <p className="mt-1 text-xs text-slate-500 max-w-md leading-relaxed">
-            Actual ÷ target hours per client. <b className="text-emerald-700">&lt; 1</b> profit ·
-            {" "}<b className="text-amber-700">≈ 1</b> on plan ·
-            {" "}<b className="text-rose-700">&gt; 1</b> loss.
-          </p>
+      {/* Compact header — one line title + fleet avg + sort selector */}
+      <header className="px-3 py-2 border-b border-slate-100 flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-[11px] uppercase tracking-[0.14em] font-semibold text-slate-500">
+            Company ratio
+          </span>
+          <span className="text-[10px] text-slate-400 hidden md:inline">
+            &lt; 1 profit · ≈ 1 on plan · &gt; 1 loss
+          </span>
         </div>
-
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] text-slate-500">Fleet avg</span>
-            <span className={`inline-flex items-center justify-center h-8 min-w-[3.25rem] rounded-md px-2 text-sm font-bold ${TONE[fleetTone].ratioBg} ${TONE[fleetTone].ratioText}`}>
-              {fleetTarget > 0 ? fleetRatio.toFixed(2) : "—"}
-            </span>
-          </div>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-slate-500 uppercase tracking-wide">Fleet</span>
+          <span className={`inline-flex items-center justify-center h-6 min-w-[2.75rem] rounded-md px-2 text-xs font-bold ${TONE[fleetTone].ratioBg} ${TONE[fleetTone].ratioText}`}>
+            {fleetTarget > 0 ? fleetRatio.toFixed(2) : "—"}
+          </span>
           <select
             value={sort}
             onChange={(e) => setSort(e.target.value as Sort)}
-            className="text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-blue/30"
+            className="text-[11px] bg-white border border-slate-200 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-brand-blue/30"
           >
-            <option value="ratio-desc">Worst loss first</option>
-            <option value="ratio-asc">Best profit first</option>
-            <option value="revenue-desc">Highest revenue first</option>
+            <option value="ratio-desc">Loss first</option>
+            <option value="ratio-asc">Profit first</option>
+            <option value="revenue-desc">Revenue</option>
           </select>
         </div>
       </header>
 
-      {/* Cards */}
-      <div className="p-4">
+      {/* Compact rows — ~56 px each so several clients fit in the capped
+          top area and the admin can scroll for the rest. */}
+      <div className="p-2">
         {data.length === 0 ? (
-          <div className="p-10 text-center text-sm text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">
+          <div className="p-6 text-center text-sm text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">
             No finalized entries in this view — company ratios appear here.
           </div>
         ) : (
-          <div className="space-y-2.5">
-            {data.map((c) => <ClientCard key={c.client} c={c} />)}
+          <div className="divide-y divide-slate-100">
+            {data.map((c) => <ClientRow key={c.client} c={c} />)}
           </div>
         )}
       </div>
@@ -147,75 +140,48 @@ export function CompanyRatioPanel({ rows }: { rows: WorkEntry[] }) {
   );
 }
 
-function ClientCard({ c }: { c: ClientRow }) {
+function ClientRow({ c }: { c: ClientRow }) {
   const hasBoth = c.totalTarget > 0 && c.totalActual > 0;
   const tone = toneOfRatio(c.ratio, hasBoth);
   const t = TONE[tone];
 
   return (
-    <article className="group relative rounded-xl border border-slate-200/80 bg-white hover:border-brand-blue/40 hover:shadow-card transition-all p-4">
-      {/* Top row: tone chip + ratio pill */}
-      <div className="flex items-start justify-between gap-3">
-        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${t.chipBg} ${t.chipText}`}>
-          <span className="text-xs leading-none">{t.icon}</span>
+    <article className="group grid grid-cols-[auto_1fr_auto] items-center gap-3 px-2 py-2 hover:bg-slate-50/60 rounded-lg">
+      {/* Left: ratio pill (double-duty: tone colour + number) */}
+      <div className={`flex flex-col items-center justify-center rounded-md px-2 py-1 min-w-[3.25rem] ${t.ratioBg}`}>
+        <span className={`text-base font-bold leading-none tabular-nums ${t.ratioText}`}>
+          {hasBoth ? c.ratio.toFixed(2) : "—"}
+        </span>
+        <span className={`text-[9px] uppercase tracking-wider mt-0.5 font-semibold ${t.ratioText} opacity-80`}>
           {t.label}
         </span>
-        <div className={`text-right ${t.ratioText}`}>
-          <div className="text-2xl font-bold leading-none tabular-nums">
-            {hasBoth ? c.ratio.toFixed(2) : "—"}
+      </div>
+
+      {/* Middle: client name + inline progress + variance in one tight block */}
+      <div className="min-w-0">
+        <h4 className="text-sm font-semibold text-brand-ink leading-tight truncate" title={c.client}>
+          {c.client}
+        </h4>
+        <div className="mt-1 flex items-center gap-2">
+          <div className={`flex-1 h-1 rounded-full ${t.barBg} overflow-hidden`}>
+            <div
+              className={`h-full ${t.barFg} transition-all`}
+              style={{ width: `${Math.min(100, c.percentUsed)}%` }}
+            />
           </div>
-          <div className="text-[10px] uppercase tracking-wider mt-0.5 opacity-70">ratio</div>
+          <span className="text-[10px] text-slate-500 tabular-nums flex-shrink-0">
+            {c.totalActual.toFixed(0)}/{c.totalTarget.toFixed(0)}h
+          </span>
         </div>
       </div>
 
-      {/* Client name — full, no truncation on hover */}
-      <h4
-        className="mt-3 text-base font-semibold text-brand-ink leading-snug break-words"
-        title={c.client}
-      >
-        {c.client}
-      </h4>
-
-      {/* Progress bar: actual vs target */}
-      <div className="mt-3">
-        <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1">
-          <span>{c.totalActual.toFixed(0)}h actual</span>
-          <span>{c.totalTarget.toFixed(0)}h target</span>
+      {/* Right: compact revenue + entries */}
+      <div className="text-right flex-shrink-0">
+        <div className="text-sm font-semibold text-brand-ink tabular-nums">AED {fmt(c.revenue)}</div>
+        <div className="text-[10px] text-slate-500 tabular-nums">
+          {c.entries} entr{c.entries === 1 ? "y" : "ies"} · {c.avgAedPerHr > 0 ? `${c.avgAedPerHr.toFixed(0)}/h` : "—"}
         </div>
-        <div className={`h-1.5 rounded-full ${t.barBg} overflow-hidden`}>
-          <div
-            className={`h-full ${t.barFg} transition-all`}
-            style={{ width: `${Math.min(100, c.percentUsed)}%` }}
-          />
-        </div>
-        {hasBoth && (
-          <div className={`text-[10px] font-medium mt-1 ${t.ratioText}`}>
-            {c.variance === 0
-              ? "Exactly on target"
-              : c.variance > 0
-                ? `+${c.variance}h over target`
-                : `${c.variance}h under target`}
-          </div>
-        )}
       </div>
-
-      {/* Bottom stats — 3 mini fields */}
-      <dl className="mt-4 pt-3 border-t border-slate-100 grid grid-cols-3 gap-2">
-        <div>
-          <dt className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">Entries</dt>
-          <dd className="mt-0.5 text-sm font-semibold text-brand-ink tabular-nums">{c.entries}</dd>
-        </div>
-        <div>
-          <dt className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">Revenue</dt>
-          <dd className="mt-0.5 text-sm font-semibold text-brand-ink tabular-nums">AED {fmt(c.revenue)}</dd>
-        </div>
-        <div>
-          <dt className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">AED / hr</dt>
-          <dd className="mt-0.5 text-sm font-semibold text-brand-ink tabular-nums">
-            {c.avgAedPerHr > 0 ? c.avgAedPerHr.toFixed(2) : "—"}
-          </dd>
-        </div>
-      </dl>
     </article>
   );
 }

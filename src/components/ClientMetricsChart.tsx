@@ -45,29 +45,29 @@ export function ClientMetricsChart({
   const meta = METRIC_META[metric];
 
   return (
-    <div className="bg-white rounded-2xl p-4 shadow-sm">
-      <div className="flex items-start justify-between gap-3 mb-3">
-        <div>
-          <div className="font-bold text-brand-ink text-sm">Client metrics</div>
-          <div className="text-xs text-gray-500">{data.length} client{data.length === 1 ? "" : "s"} in this view</div>
+    <div className="bg-white rounded-2xl p-3 shadow-sm h-full flex flex-col min-h-0">
+      <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="font-bold text-brand-ink text-xs">Client metrics</div>
+          <span className="text-[10px] text-gray-500">· {data.length} client{data.length === 1 ? "" : "s"}</span>
         </div>
         <button
           onClick={() => setPickerOpen(true)}
-          className="text-xs bg-brand-blueSoft border border-brand-blue text-brand-ink font-semibold px-2.5 py-1 rounded-full"
+          className="text-[10px] bg-brand-blueSoft border border-brand-blue text-brand-ink font-semibold px-2 py-0.5 rounded-full"
         >
-          Compare clients →
+          Compare →
         </button>
       </div>
 
       {/* Segmented metric toggle */}
-      <div className="inline-flex rounded-full border border-gray-200 bg-gray-50 p-0.5 mb-3">
+      <div className="inline-flex rounded-full border border-gray-200 bg-gray-50 p-0.5 mb-2 self-start">
         {(Object.keys(METRIC_META) as Metric[]).map((m) => {
           const active = metric === m;
           return (
             <button
               key={m}
               onClick={() => setMetric(m)}
-              className={`text-[11px] font-semibold px-3 py-1 rounded-full transition ${
+              className={`text-[10px] font-semibold px-2.5 py-0.5 rounded-full transition ${
                 active ? "text-white shadow-sm" : "text-gray-600 hover:text-brand-ink"
               }`}
               style={active ? { background: METRIC_META[m].color } : undefined}
@@ -78,7 +78,7 @@ export function ClientMetricsChart({
         })}
       </div>
 
-      <div style={{ width: "100%", height: 260 }}>
+      <div className="flex-1 min-h-0" style={{ width: "100%", minHeight: 140 }}>
         {data.length === 0 ? (
           <div className="h-full flex items-center justify-center text-sm text-gray-400 border-2 border-dashed rounded-xl">
             No finalized entries in this view

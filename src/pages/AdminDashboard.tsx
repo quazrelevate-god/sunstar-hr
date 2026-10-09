@@ -325,11 +325,15 @@ function FilterChip({ active, onClick, label }: { active: boolean; onClick: () =
 /* ==============================
    PRICE MODAL
    ============================== */
-/** True if the client's name reads like a manpower-supply arrangement.
- *  Match is case-insensitive on "supplier" anywhere in the client string
- *  ("ABC Supplier", "Supplier Group", "PQR Manpower Supplier" all match). */
+/** True when an entry is a manpower-supply booking (hours × rate billing).
+ *  Fires if EITHER the villa field OR the description contains "supply"
+ *  (case-insensitive). Covers "Villa=SUPPLY", "Description=MANPOWER SUPPLY",
+ *  and anything in between — admin can't easily miss the switch to the
+ *  Hours + AED/hr pricing mode. */
 function isManpowerSupply(row: WorkEntry): boolean {
-  return /supplier/i.test(row.client ?? "");
+  const villa = (row.villa ?? "").toString();
+  const desc = (row.description ?? "").toString();
+  return /supply/i.test(villa) || /supply/i.test(desc);
 }
 
 function PriceModal({

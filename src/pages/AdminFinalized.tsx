@@ -286,8 +286,8 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
           <MetricCards m={metrics} />
 
           {/* Top row: Ratios (wider) and Client Metrics chart (narrower).
-              Capped height on desktop so the table below gets ~60-65%. */}
-          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 xl:h-[36vh] xl:min-h-[260px]">
+              Capped tight on desktop so ~7+ table rows stay visible below. */}
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 xl:h-[24vh] xl:min-h-[210px] xl:max-h-[260px]">
             <section className="lg:col-span-3 overflow-y-auto min-h-0">
               <CompanyRatioPanel rows={rows} />
             </section>
@@ -554,22 +554,24 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
 }
 
 /* ============================== */
+/** Single thin strip — Entries · Total Hours · Revenue · Avg AED/hr — so the
+ *  entries table below gets most of the vertical space. Wraps on narrow screens. */
 function MetricCards({ m }: { m: { hours: number; revenue: number; perHour: number; count: number } }) {
   return (
-    <div className="grid grid-cols-2 gap-3">
-      <Metric label="Entries" value={m.count.toString()} />
-      <Metric label="Total Hours" value={m.hours.toFixed(0)} />
-      <Metric label="Revenue" value={`AED ${m.revenue.toLocaleString()}`} accent />
-      <Metric label="Avg AED/hr" value={m.perHour.toFixed(2)} accent />
+    <div className="rounded-xl bg-white border border-slate-200/70 shadow-sm px-4 py-2.5 flex flex-wrap items-center gap-x-6 gap-y-1">
+      <MetricInline label="Entries" value={m.count.toString()} />
+      <MetricInline label="Total Hours" value={m.hours.toFixed(0)} />
+      <MetricInline label="Revenue" value={`AED ${m.revenue.toLocaleString()}`} accent />
+      <MetricInline label="Avg AED/hr" value={m.perHour.toFixed(2)} accent />
     </div>
   );
 }
 
-function Metric({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+function MetricInline({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
   return (
-    <div className={`rounded-2xl p-3 shadow-sm ${accent ? "bg-brand-blue text-white" : "bg-white border"}`}>
-      <div className="text-[11px] uppercase tracking-wide opacity-70 font-semibold">{label}</div>
-      <div className="text-lg font-bold mt-1 truncate">{value}</div>
+    <div className="flex items-baseline gap-2 min-w-0">
+      <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-500">{label}</span>
+      <span className={`text-base font-bold truncate ${accent ? "text-brand-blueDark" : "text-brand-ink"}`}>{value}</span>
     </div>
   );
 }
@@ -617,21 +619,15 @@ function ConfirmModal({
 }
 
 /* Export helpers */
-/* Columns intentionally excluded from the export (per client request):
- *   - State (`state`)                      → removed as a column
- *   - Apartment (`apartment_number`)       → removed
- *   - Status (`status`)                    → removed
- *   - GI-Circular Box (`gi_circular_box`)  → removed
- *   - GI-Offset (`gi_offset`)              → removed
- *   - Final Fix Socket (`final_fix_socket`)→ removed
- * One rename:
- *   - Final Fix Switch                     → "Wiring Accessories"
- * Everything else stays in POINT_FIELDS order so the sheet keeps the same
- * left-to-right flow operators are used to.
+/* Export schema — single source of truth is the header row the client shared
+ * (image 5.png). State / Apartment / GI-Circular Box / GI-Offset / Final Fix
+ * Socket stay excluded. Final Fix Switch is relabelled to "Wiring accessories"
+ * (lowercase 'a', per the image). A trailing blank "remark" column is written
+ * so the admin can jot notes directly in Excel after exporting.
  */
 const EXPORT_EXCLUDE_POINT_KEYS = new Set(["gi_circular_box", "gi_offset", "final_fix_socket"]);
 const EXPORT_LABEL_OVERRIDES: Record<string, string> = {
-  final_fix_switch: "Wiring Accessories",
+  final_fix_switch: "Wiring accessories",
 };
 
 function buildExportData(rows: WorkEntry[]) {
@@ -640,16 +636,17 @@ function buildExportData(rows: WorkEntry[]) {
   );
   const headers = [
     "S.No","Cluster","Phase","Villa","Bedroom","Description","Floor",
-    "Start Date","End Date","Client","Employee",
+    "Start Date","End Date","Status","Client","Employee",
     "Total Manpower","Check-in","Check-out","Break Start","Break End",
     "Target Hours","Actual Hours","Total Price (AED)","AED per Hour",
     ...exportPointFields.map((p) => EXPORT_LABEL_OVERRIDES[p.key as string] ?? p.label),
+    "remark",
   ];
   const out = rows.map((r, i) => {
     const base: (string | number)[] = [
       i + 1, r.cluster, r.phase, r.villa,
       r.bedroom_type, r.description, r.floor_type,
-      r.start_date ?? "", r.end_date ?? "", r.client ?? "", r.employee_name ?? "",
+      r.start_date ?? "", r.end_date ?? "", r.status ?? "", r.client ?? "", r.employee_name ?? "",
       r.total_manpower ?? "",
       (r.check_in_time ?? "").toString().slice(0,5),
       (r.check_out_time ?? "").toString().slice(0,5),
@@ -660,6 +657,7 @@ function buildExportData(rows: WorkEntry[]) {
       r.per_hour_ratio != null ? Number(r.per_hour_ratio) : "",
     ];
     exportPointFields.forEach((p) => base.push(((r as any)[p.key] ?? 0) as number));
+    base.push(""); // blank 'remark' cell — admin writes in Excel after export
     return base;
   });
   return { headers, rows: out };
