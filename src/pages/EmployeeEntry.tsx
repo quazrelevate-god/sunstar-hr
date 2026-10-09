@@ -13,45 +13,59 @@ const FLOOR_SEED   = ["SOG", "FF", "SF", "RF", "GF"];
 const STATUS_OPTS  = ["DONE", "IN PROGRESS", "PENDING"];
 const SUGGEST_COLS = ["cluster","phase","villa","bedroom_type","floor_type","description","client","status","apartment_number"] as const;
 
-function currentHHMM() {
-  const d = new Date();
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-}
-
-/** Fresh blank morning form. Dates/times are computed at call time (not page load),
- *  so a tablet left open overnight still defaults to today's Dubai date. */
+/** Fresh blank morning form. Dates recompute at call time (not page load) so a
+ *  tablet left open overnight still defaults to today's Dubai date. Times are
+ *  pre-filled with the shift defaults (editable); every other field is blank
+ *  so one employee can never see another's leftover values on a shared tablet. */
 function emptyNew(): Partial<WorkEntry> {
   return {
     cluster: "",
     phase: "",
     villa: "",
-    bedroom_type: "3 BR",
+    bedroom_type: "",
     description: "",
-    floor_type: "SOG",
+    floor_type: "",
     start_date: todayDubai(),
     status: "IN PROGRESS",
     client: "",
     target_hours: null,
     apartment_number: "",
     total_manpower: null,
-    check_in_time: currentHHMM(),
-    check_out_time: "",
-    break_start_time: "",
-    break_end_time: "",
+    check_in_time: "07:00",
+    check_out_time: "18:00",
+    break_start_time: "13:00",
+    break_end_time: "14:00",
   };
 }
 
-/* ---- Per-row draft of the "Fill actuals" form, kept on the tablet ---- */
+/* ---- Per-row draft of the "Fill actuals" form, kept on the tablet ----
+ *
+ * Keys are scoped by BOTH the employee's user id and the entry id so that two
+ * employees sharing one tablet can never see each other's unsent drafts.
+ * On sign-out, `clearAllDrafts()` wipes every sunstar-actuals-draft-* key —
+ * nothing lingers for the next person who signs in. */
 type Draft = { hours: number | ""; checkOut: string; breakStart: string; breakEnd: string; points: Record<string, number> };
-const draftKey = (id: string) => `sunstar-actuals-draft-${id}`;
-function readDraft(id: string): Draft | null {
-  try { const s = localStorage.getItem(draftKey(id)); return s ? (JSON.parse(s) as Draft) : null; } catch { return null; }
+const draftKey = (userId: string | null | undefined, id: string) =>
+  `sunstar-actuals-draft-${userId ?? "anon"}-${id}`;
+function readDraft(userId: string | null | undefined, id: string): Draft | null {
+  try { const s = localStorage.getItem(draftKey(userId, id)); return s ? (JSON.parse(s) as Draft) : null; } catch { return null; }
 }
-function writeDraft(id: string, d: Draft) {
-  try { localStorage.setItem(draftKey(id), JSON.stringify(d)); } catch { /* storage unavailable */ }
+function writeDraft(userId: string | null | undefined, id: string, d: Draft) {
+  try { localStorage.setItem(draftKey(userId, id), JSON.stringify(d)); } catch { /* storage unavailable */ }
 }
-function clearDraft(id: string) {
-  try { localStorage.removeItem(draftKey(id)); } catch { /* storage unavailable */ }
+function clearDraft(userId: string | null | undefined, id: string) {
+  try { localStorage.removeItem(draftKey(userId, id)); } catch { /* storage unavailable */ }
+}
+/** Wipe every actuals draft on this tablet (called on sign-out). */
+function clearAllDrafts() {
+  try {
+    const keys: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith("sunstar-actuals-draft-")) keys.push(k);
+    }
+    keys.forEach((k) => localStorage.removeItem(k));
+  } catch { /* storage unavailable */ }
 }
 
 const byCreatedAsc = (a: WorkEntry, b: WorkEntry) =>
@@ -143,7 +157,7 @@ export default function EmployeeEntry() {
             </div>
           </div>
           <button
-            onClick={signOut}
+            onClick={() => { clearAllDrafts(); signOut(); }}
             className="bg-brand-ink hover:bg-black text-white px-4 py-2 rounded-lg text-sm font-medium"
           >
             Sign out
@@ -185,6 +199,7 @@ export default function EmployeeEntry() {
    QUEUE TAB
    ============================== */
 function QueueTab({ flash }: { flash: (m: string, k?: ToastKind) => void }) {
+  const { employee } = useAuth();
   const [rows, setRows] = useState<WorkEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -255,7 +270,7 @@ function QueueTab({ flash }: { flash: (m: string, k?: ToastKind) => void }) {
     if (!confirm("Delete this queued entry? This cannot be undone.")) return;
     const { error } = await supabase.from("sunstar_work_entries").delete().eq("id", id);
     if (error) return flash(error.message, "error");
-    clearDraft(id);
+    clearDraft(employee?.auth_user_id, id);
     if (openId === id) setOpenId(null);
     flash("Entry deleted", "success");
     load();
@@ -320,8 +335,10 @@ function QueueRow({
   flash: (m: string, k?: ToastKind) => void;
 }) {
   const { employee } = useAuth();
+  const uid = employee?.auth_user_id;
   // Restore any draft typed earlier on this tablet (survives refresh / reload).
-  const [draft] = useState<Draft | null>(() => readDraft(row.id!));
+  // Drafts are scoped to the signed-in user so a shared tablet can't leak.
+  const [draft] = useState<Draft | null>(() => readDraft(uid, row.id!));
   const [hours, setHours] = useState<number | "">(draft?.hours ?? "");
   const [checkOut, setCheckOut] = useState<string>(draft?.checkOut ?? row.check_out_time ?? "");
   const [breakStart, setBreakStart] = useState<string>(draft?.breakStart ?? row.break_start_time ?? "");
@@ -337,8 +354,8 @@ function QueueRow({
   useEffect(() => {
     const anyPoints = Object.values(points).some((v) => v);
     if (hours === "" && !checkOut && !breakStart && !breakEnd && !anyPoints) return;
-    writeDraft(row.id!, { hours, checkOut, breakStart, breakEnd, points });
-  }, [row.id, hours, checkOut, breakStart, breakEnd, points]);
+    writeDraft(uid, row.id!, { hours, checkOut, breakStart, breakEnd, points });
+  }, [uid, row.id, hours, checkOut, breakStart, breakEnd, points]);
 
   const setPt = (k: string, v: number) => setPoints((p) => ({ ...p, [k]: v }));
 
@@ -373,7 +390,7 @@ function QueueRow({
       .eq("state", "AWAITING_ACTUAL");
     setSaving(false);
     if (error) return flash(error.message, "error");
-    clearDraft(row.id!);
+    clearDraft(uid, row.id!);
     if (count === 0) {
       flash("This job was already submitted or removed by someone else", "error");
       return;
@@ -569,17 +586,10 @@ function NewEntryTab({
     submitting.current = false;
     if (error) return flash(error.message, "error");
     flash(`Queued · Villa ${form.villa} · ${form.target_hours}h target`, "success");
-    setForm({
-      ...emptyNew(),
-      cluster: form.cluster,
-      phase: form.phase,
-      client: form.client,
-      floor_type: form.floor_type,
-      description: form.description,
-      bedroom_type: form.bedroom_type,
-      total_manpower: form.total_manpower,
-      check_in_time: currentHHMM(),
-    });
+    // Fully blank form on next entry — no values retained from the submitted one.
+    // (History still powers the typeahead suggestions, so repeat values are
+    // one tap away without being pre-filled.)
+    setForm(emptyNew());
     onDone();
   }
 
