@@ -243,13 +243,14 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
 
   return (
     // Fixed-height split-screen only on wide desktops (≥1280px). On narrower
-    // windows the columns stack and the page scrolls normally, so the table
-    // is never cut off.
+    // windows everything stacks and scrolls normally so nothing is cut off.
     <div className="xl:h-[calc(100vh-140px)] xl:overflow-hidden">
       {toast && <Toast msg={toast.msg} kind={toast.kind} />}
 
-      {/* THREE-column grid on desktop: [Views | Charts | Table] */}
-      <div className="grid gap-4 xl:h-full grid-cols-1 xl:grid-cols-[200px_360px_minmax(0,1fr)]">
+      {/* TWO-column grid: [ Views sidebar | Right pane ].
+          The right pane itself splits top (ratios + chart side-by-side) and
+          bottom (toolbar + full-width entries table ≈ 60-65% of the height). */}
+      <div className="grid gap-4 xl:h-full grid-cols-1 xl:grid-cols-[200px_minmax(0,1fr)]">
         {/* LEFT: Views sidebar (scrolls internally if long) */}
         <aside className="bg-white rounded-2xl shadow-sm p-3 overflow-y-auto">
           <div className="text-xs font-bold text-gray-500 uppercase tracking-wide px-2 mb-2">Views</div>
@@ -279,19 +280,28 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
           </div>
         </aside>
 
-        {/* MIDDLE: Charts panel — sticky, independent scroll */}
-        <section className="overflow-y-auto space-y-4 pr-1">
+        {/* RIGHT: top (metrics + ratios + chart) stacked above the entries table. */}
+        <div className="flex flex-col min-h-0 min-w-0 gap-4">
+          {/* Metrics summary strip */}
           <MetricCards m={metrics} />
-          <CompanyRatioPanel rows={rows} />
-          <ClientMetricsChart
-            rows={rows}
-            allClients={allClients}
-            onCompareClients={applyClientComparison}
-          />
-        </section>
 
-        {/* RIGHT: Toolbar + Table — independent scroll */}
-        <section className="flex flex-col min-h-0 min-w-0 gap-4">
+          {/* Top row: Ratios (wider) and Client Metrics chart (narrower).
+              Capped height on desktop so the table below gets ~60-65%. */}
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 xl:h-[36vh] xl:min-h-[260px]">
+            <section className="lg:col-span-3 overflow-y-auto min-h-0">
+              <CompanyRatioPanel rows={rows} />
+            </section>
+            <section className="lg:col-span-2 overflow-y-auto min-h-0">
+              <ClientMetricsChart
+                rows={rows}
+                allClients={allClients}
+                onCompareClients={applyClientComparison}
+              />
+            </section>
+          </div>
+
+          {/* Bottom: toolbar + full-width table (fills remaining height) */}
+          <section className="flex flex-col min-h-0 min-w-0 gap-4 flex-1">
           <div className="bg-white rounded-2xl shadow-sm p-4 space-y-3 flex-shrink-0">
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <div>
@@ -464,6 +474,7 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
             </div>
           </div>
         </section>
+        </div>
       </div>
 
       <AddConditionPopover
@@ -606,19 +617,39 @@ function ConfirmModal({
 }
 
 /* Export helpers */
+/* Columns intentionally excluded from the export (per client request):
+ *   - State (`state`)                      → removed as a column
+ *   - Apartment (`apartment_number`)       → removed
+ *   - Status (`status`)                    → removed
+ *   - GI-Circular Box (`gi_circular_box`)  → removed
+ *   - GI-Offset (`gi_offset`)              → removed
+ *   - Final Fix Socket (`final_fix_socket`)→ removed
+ * One rename:
+ *   - Final Fix Switch                     → "Wiring Accessories"
+ * Everything else stays in POINT_FIELDS order so the sheet keeps the same
+ * left-to-right flow operators are used to.
+ */
+const EXPORT_EXCLUDE_POINT_KEYS = new Set(["gi_circular_box", "gi_offset", "final_fix_socket"]);
+const EXPORT_LABEL_OVERRIDES: Record<string, string> = {
+  final_fix_switch: "Wiring Accessories",
+};
+
 function buildExportData(rows: WorkEntry[]) {
+  const exportPointFields = POINT_FIELDS.filter(
+    (p) => !EXPORT_EXCLUDE_POINT_KEYS.has(p.key as string),
+  );
   const headers = [
-    "S.No","State","Cluster","Phase","Villa","Apartment","Bedroom","Description","Floor",
-    "Start Date","End Date","Status","Client","Employee",
+    "S.No","Cluster","Phase","Villa","Bedroom","Description","Floor",
+    "Start Date","End Date","Client","Employee",
     "Total Manpower","Check-in","Check-out","Break Start","Break End",
     "Target Hours","Actual Hours","Total Price (AED)","AED per Hour",
-    ...POINT_FIELDS.map((p) => p.label),
+    ...exportPointFields.map((p) => EXPORT_LABEL_OVERRIDES[p.key as string] ?? p.label),
   ];
   const out = rows.map((r, i) => {
     const base: (string | number)[] = [
-      i + 1, r.state, r.cluster, r.phase, r.villa, r.apartment_number ?? "",
+      i + 1, r.cluster, r.phase, r.villa,
       r.bedroom_type, r.description, r.floor_type,
-      r.start_date ?? "", r.end_date ?? "", r.status, r.client ?? "", r.employee_name ?? "",
+      r.start_date ?? "", r.end_date ?? "", r.client ?? "", r.employee_name ?? "",
       r.total_manpower ?? "",
       (r.check_in_time ?? "").toString().slice(0,5),
       (r.check_out_time ?? "").toString().slice(0,5),
@@ -628,7 +659,7 @@ function buildExportData(rows: WorkEntry[]) {
       r.total_price != null ? Number(r.total_price) : "",
       r.per_hour_ratio != null ? Number(r.per_hour_ratio) : "",
     ];
-    POINT_FIELDS.forEach((p) => base.push(((r as any)[p.key] ?? 0) as number));
+    exportPointFields.forEach((p) => base.push(((r as any)[p.key] ?? 0) as number));
     return base;
   });
   return { headers, rows: out };

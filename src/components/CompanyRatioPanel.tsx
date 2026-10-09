@@ -54,7 +54,9 @@ function fmt(n: number): string {
 }
 
 export function CompanyRatioPanel({ rows }: { rows: WorkEntry[] }) {
-  const [sort, setSort] = useState<Sort>("ratio-asc");
+  // Default = worst loss first → neutral → best profit last.
+  // That way the clients that need attention surface at the top.
+  const [sort, setSort] = useState<Sort>("ratio-desc");
 
   const data = useMemo<ClientRow[]>(() => {
     const map = new Map<string, ClientRow>();
@@ -122,8 +124,8 @@ export function CompanyRatioPanel({ rows }: { rows: WorkEntry[] }) {
             onChange={(e) => setSort(e.target.value as Sort)}
             className="text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-blue/30"
           >
-            <option value="ratio-asc">Best profit first</option>
             <option value="ratio-desc">Worst loss first</option>
+            <option value="ratio-asc">Best profit first</option>
             <option value="revenue-desc">Highest revenue first</option>
           </select>
         </div>

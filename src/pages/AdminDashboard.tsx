@@ -97,7 +97,7 @@ export default function AdminDashboard() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-sky-50 via-white to-blue-50/40">
       <header className="bg-white border-b border-slate-200/70 shadow-card">
-        <div className="max-w-[1800px] mx-auto px-6 py-3 flex items-center justify-between">
+        <div className="max-w-screen-2xl 2xl:max-w-none mx-auto px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Logo size="sm" />
             <div className="border-l border-slate-200 pl-3">
@@ -111,7 +111,7 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        <div className="max-w-[1800px] mx-auto px-6">
+        <div className="max-w-screen-2xl 2xl:max-w-none mx-auto px-6">
           <nav className="flex gap-1">
             {(["queue", "finalized", "employees"] as Tab[]).map((t) => (
               <button
@@ -134,7 +134,7 @@ export default function AdminDashboard() {
 
       {toast && <Toast msg={toast.msg} kind={toast.kind} />}
 
-      <main className="max-w-[1800px] mx-auto p-6">
+      <main className="max-w-screen-2xl 2xl:max-w-none mx-auto p-4 md:p-6">
         {tab === "employees" && <AdminEmployees />}
         {tab === "queue" && (
           <QueuePanel rows={queue} loading={loading} reload={load} flash={flash} />
@@ -325,6 +325,13 @@ function FilterChip({ active, onClick, label }: { active: boolean; onClick: () =
 /* ==============================
    PRICE MODAL
    ============================== */
+/** True if the client's name reads like a manpower-supply arrangement.
+ *  Match is case-insensitive on "supplier" anywhere in the client string
+ *  ("ABC Supplier", "Supplier Group", "PQR Manpower Supplier" all match). */
+function isManpowerSupply(row: WorkEntry): boolean {
+  return /supplier/i.test(row.client ?? "");
+}
+
 function PriceModal({
   row, onClose, onDone, flash,
 }: {
@@ -332,26 +339,49 @@ function PriceModal({
   flash: (m: string, k?: ToastKind) => void;
 }) {
   const { employee } = useAuth();
+  const manpower = isManpowerSupply(row);
+
+  // Fixed-price mode — single total price input (used for normal villa jobs).
   const [price, setPrice] = useState<number | "">("");
+  // Manpower-supply mode — admin enters hours + AED/hr, we compute the total.
+  const [mpHours, setMpHours] = useState<number | "">(row.hours ?? "");
+  const [mpRate, setMpRate]   = useState<number | "">("");
+  const mpTotal = (typeof mpHours === "number" && typeof mpRate === "number")
+    ? +(mpHours * mpRate).toFixed(2) : 0;
+
   const [saving, setSaving] = useState(false);
-  const perHour = price && row.hours ? (+price / row.hours).toFixed(2) : "—";
+  const effectivePrice: number = manpower ? mpTotal : (price === "" ? 0 : +price);
+  const perHour = effectivePrice && row.hours ? (effectivePrice / row.hours).toFixed(2) : "—";
 
   // Rate tone preview
   const previewClass = (() => {
-    if (!price || !row.hours || row.target_hours == null) return "bg-gray-100 text-gray-700";
+    if (!effectivePrice || !row.hours || row.target_hours == null) return "bg-gray-100 text-gray-700";
     if (row.hours < row.target_hours) return "bg-green-100 text-green-800";
     if (row.hours > row.target_hours) return "bg-red-100 text-red-800";
     return "bg-amber-100 text-amber-800";
   })();
 
   async function submit() {
-    if (!price || +price <= 0) return flash("Enter a valid price", "error");
+    const toSave = effectivePrice;
+    if (!toSave || toSave <= 0) {
+      return flash(manpower ? "Enter hours AND AED per hour" : "Enter a valid price", "error");
+    }
     setSaving(true);
     // Only finalize if the entry is still waiting for a price (not deleted,
     // not already finalized by another admin in a different window).
+    const update: Record<string, any> = {
+      total_price: toSave,
+      state: "FINALIZED",
+      priced_by_id: employee?.id ?? null,
+    };
+    // Manpower-supply bookings bill by the hour, so overwrite the actual hours
+    // with whatever the admin entered here (that is the billable number).
+    if (manpower && typeof mpHours === "number" && mpHours > 0) {
+      update.hours = mpHours;
+    }
     const { error, count } = await supabase
       .from("sunstar_work_entries")
-      .update({ total_price: +price, state: "FINALIZED", priced_by_id: employee?.id ?? null }, { count: "exact" })
+      .update(update, { count: "exact" })
       .eq("id", row.id!)
       .eq("state", "AWAITING_PRICE");
     setSaving(false);
@@ -369,16 +399,52 @@ function PriceModal({
       <div className="text-lg font-bold text-brand-ink mb-1">Set Price — Villa {row.villa}</div>
       <div className="text-xs text-gray-500 mb-4">
         {row.description} · {row.client} · Actual {row.hours}h (target {row.target_hours}h)
+        {manpower && (
+          <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 font-semibold text-[11px]">
+            Manpower supply
+          </span>
+        )}
       </div>
-      <label className="block mb-4">
-        <div className="text-xs font-semibold text-gray-500 mb-1">Total Price (AED) *</div>
-        <input
-          type="number" min={0} step="0.01" autoFocus
-          value={price}
-          onChange={(e) => setPrice(e.target.value ? +e.target.value : "")}
-          className="w-full border rounded-xl px-4 py-3 font-semibold focus:outline-none focus:ring-4 focus:ring-brand-blue/30 focus:border-brand-blue"
-        />
-      </label>
+
+      {manpower ? (
+        <>
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            <label className="block">
+              <div className="text-xs font-semibold text-gray-500 mb-1">Hours *</div>
+              <input
+                type="number" min={0} step="0.5" autoFocus
+                value={mpHours}
+                onChange={(e) => setMpHours(e.target.value ? +e.target.value : "")}
+                className="w-full border rounded-xl px-4 py-3 font-semibold focus:outline-none focus:ring-4 focus:ring-brand-blue/30 focus:border-brand-blue"
+              />
+            </label>
+            <label className="block">
+              <div className="text-xs font-semibold text-gray-500 mb-1">AED / hr *</div>
+              <input
+                type="number" min={0} step="0.01"
+                value={mpRate}
+                onChange={(e) => setMpRate(e.target.value ? +e.target.value : "")}
+                className="w-full border rounded-xl px-4 py-3 font-semibold focus:outline-none focus:ring-4 focus:ring-brand-blue/30 focus:border-brand-blue"
+              />
+            </label>
+          </div>
+          <div className="rounded-xl bg-brand-blueSoft/60 border border-brand-blue/20 px-4 py-3 mb-4 flex items-center justify-between">
+            <span className="text-xs text-brand-blueDark font-semibold uppercase tracking-wide">Total (auto)</span>
+            <b className="text-brand-ink text-lg">AED {mpTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</b>
+          </div>
+        </>
+      ) : (
+        <label className="block mb-4">
+          <div className="text-xs font-semibold text-gray-500 mb-1">Total Price (AED) *</div>
+          <input
+            type="number" min={0} step="0.01" autoFocus
+            value={price}
+            onChange={(e) => setPrice(e.target.value ? +e.target.value : "")}
+            className="w-full border rounded-xl px-4 py-3 font-semibold focus:outline-none focus:ring-4 focus:ring-brand-blue/30 focus:border-brand-blue"
+          />
+        </label>
+      )}
+
       <div className={`rounded-xl p-3 mb-4 text-sm flex justify-between font-semibold ${previewClass}`}>
         <span>Live per-hour rate</span>
         <b>AED {perHour}/hr</b>
