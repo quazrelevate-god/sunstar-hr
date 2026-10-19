@@ -28,7 +28,6 @@ function emptyNew(): Partial<WorkEntry> {
     start_date: todayDubai(),
     status: "IN PROGRESS",
     client: "",
-    target_hours: null,
     apartment_number: "",
     total_manpower: null,
     check_in_time: "07:00",
@@ -415,7 +414,6 @@ function QueueRow({
             {row.apartment_number ? ` · Apt ${row.apartment_number}` : ""}
           </div>
           <div className="text-xs text-gray-400 mt-1 flex gap-3 flex-wrap">
-            <span>Target {row.target_hours ?? "—"}h</span>
             {row.total_manpower != null && <span>Manpower {row.total_manpower}</span>}
             {row.check_in_time && <span>In {row.check_in_time.slice(0,5)}</span>}
             <span>queued {row.created_at ? relativeAgo(row.created_at) : ""}</span>
@@ -513,13 +511,8 @@ function NewEntryTab({
     if (!form.villa?.trim()) return flash("Villa is required", "error");
     if (!form.client?.trim()) return flash("Client is required", "error");
     if (!form.description?.trim()) return flash("Description is required", "error");
-    if (!form.target_hours || form.target_hours <= 0) return flash("Target hours must be > 0", "error");
     if (!form.total_manpower || form.total_manpower <= 0 || !Number.isInteger(form.total_manpower)) {
       return flash("Total manpower must be a whole number above 0", "error");
-    }
-    const cap = maxHours(form.total_manpower);
-    if (form.target_hours > cap) {
-      return flash(`Target hours look too high — max ${cap}h for ${form.total_manpower} people`, "error");
     }
     if (!form.check_in_time) return flash("Check-in time is required", "error");
     const warn = timeWarnings(form);
@@ -534,7 +527,7 @@ function NewEntryTab({
     const startDate = form.start_date || todayDubai();
     const { data: dups, error: dupErr } = await supabase
       .from("sunstar_work_entries")
-      .select("id, state, hours, target_hours, created_at")
+      .select("id, state, hours, created_at")
       .ilike("villa", villa)
       .ilike("client", client)
       .eq("start_date", startDate)
@@ -549,7 +542,7 @@ function NewEntryTab({
         : s === "AWAITING_PRICE" ? "waiting for price"
         : "already finalized";
       const lines = dups.map((d) =>
-        `• ${stateLabel(d.state)} · target ${d.target_hours ?? "?"}h`
+        `• ${stateLabel(d.state)}${d.hours != null ? ` · actual ${d.hours}h` : ""}`
       ).join("\n");
       const okDup = confirm(
         `Villa ${villa} for "${client}" on ${startDate} already exists (${dups.length}):\n\n${lines}\n\nCreate ANOTHER entry anyway?`
@@ -570,7 +563,6 @@ function NewEntryTab({
       start_date: form.start_date || todayDubai(),
       status: form.status ?? "IN PROGRESS",
       client: form.client,
-      target_hours: form.target_hours,
       apartment_number: form.apartment_number?.trim() ? form.apartment_number.trim() : null,
       total_manpower: form.total_manpower,
       check_in_time: form.check_in_time || null,
@@ -585,7 +577,7 @@ function NewEntryTab({
     setSaving(false);
     submitting.current = false;
     if (error) return flash(error.message, "error");
-    flash(`Queued · Villa ${form.villa} · ${form.target_hours}h target`, "success");
+    flash(`Queued · Villa ${form.villa}`, "success");
     // Fully blank form on next entry — no values retained from the submitted one.
     // (History still powers the typeahead suggestions, so repeat values are
     // one tap away without being pre-filled.)
@@ -662,19 +654,6 @@ function NewEntryTab({
             placeholder="e.g. 4"
           />
         </Field>
-        <Field label="Target Hours *">
-          <input
-            type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*"
-            value={form.target_hours ?? ""}
-            onChange={(e) => {
-              const raw = e.target.value.replace(/[^0-9.]/g, "");
-              set("target_hours", raw ? parseFloat(raw) : null);
-            }}
-            className={cx("font-semibold")}
-            placeholder="e.g. 25"
-          />
-        </Field>
-
         <Field label="Check-in *">
           <input type="time" value={form.check_in_time ?? ""} onChange={(e) => set("check_in_time", e.target.value)} className={cx()} />
         </Field>

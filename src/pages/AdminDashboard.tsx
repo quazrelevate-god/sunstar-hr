@@ -238,7 +238,6 @@ function QueuePanel({
                     {r.description} · Client: {r.client || "—"}
                   </div>
                   <div className="text-xs text-gray-400 mt-1 flex gap-3 flex-wrap">
-                    <span>Target {r.target_hours ?? "—"}h</span>
                     {r.hours != null && <span>Actual <b>{r.hours}h</b></span>}
                     {r.total_price != null && <span>Price <b>AED {r.total_price}</b></span>}
                     <span>Queued {r.created_at ? relativeAgo(r.created_at) : ""}</span>
@@ -336,6 +335,8 @@ function isManpowerSupply(row: WorkEntry): boolean {
   return /supply/i.test(villa) || /supply/i.test(desc);
 }
 
+type NormalPriceMode = "quantity" | "total";
+
 function PriceModal({
   row, onClose, onDone, flash,
 }: {
@@ -345,40 +346,50 @@ function PriceModal({
   const { employee } = useAuth();
   const manpower = isManpowerSupply(row);
 
-  // Fixed-price mode — single total price input (used for normal villa jobs).
+  // Non-supply villas: toggle between "by quantity" (qty × price → total) and
+  // "total" (single input). Supply villas keep the Hours+AED/hr dual input.
+  const [mode, setMode] = useState<NormalPriceMode>("total");
+
+  // Normal mode — Total price input
   const [price, setPrice] = useState<number | "">("");
-  // Manpower-supply mode — admin enters hours + AED/hr, we compute the total.
+  // Normal mode — Quantity + Price per quantity → auto Total
+  const [qty, setQty] = useState<number | "">("");
+  const [qtyPrice, setQtyPrice] = useState<number | "">("");
+  const qtyTotal = (typeof qty === "number" && typeof qtyPrice === "number")
+    ? +(qty * qtyPrice).toFixed(2) : 0;
+
+  // Manpower-supply mode — Hours + AED/hr → auto Total
   const [mpHours, setMpHours] = useState<number | "">(row.hours ?? "");
   const [mpRate, setMpRate]   = useState<number | "">("");
   const mpTotal = (typeof mpHours === "number" && typeof mpRate === "number")
     ? +(mpHours * mpRate).toFixed(2) : 0;
 
   const [saving, setSaving] = useState(false);
-  const effectivePrice: number = manpower ? mpTotal : (price === "" ? 0 : +price);
-  const perHour = effectivePrice && row.hours ? (effectivePrice / row.hours).toFixed(2) : "—";
 
-  // Rate tone preview
-  const previewClass = (() => {
-    if (!effectivePrice || !row.hours || row.target_hours == null) return "bg-gray-100 text-gray-700";
-    if (row.hours < row.target_hours) return "bg-green-100 text-green-800";
-    if (row.hours > row.target_hours) return "bg-red-100 text-red-800";
-    return "bg-amber-100 text-amber-800";
-  })();
+  const effectivePrice: number = manpower
+    ? mpTotal
+    : mode === "quantity"
+      ? qtyTotal
+      : (price === "" ? 0 : +price);
+
+  const perHour = effectivePrice && row.hours ? (effectivePrice / row.hours).toFixed(2) : "—";
+  const previewClass = "bg-brand-blueSoft text-brand-blueDark";
 
   async function submit() {
     const toSave = effectivePrice;
     if (!toSave || toSave <= 0) {
-      return flash(manpower ? "Enter hours AND AED per hour" : "Enter a valid price", "error");
+      const msg = manpower ? "Enter hours AND AED per hour"
+        : mode === "quantity" ? "Enter quantity AND price per quantity"
+        : "Enter a valid price";
+      return flash(msg, "error");
     }
     setSaving(true);
-    // Only finalize if the entry is still waiting for a price (not deleted,
-    // not already finalized by another admin in a different window).
     const update: Record<string, any> = {
       total_price: toSave,
       state: "FINALIZED",
       priced_by_id: employee?.id ?? null,
     };
-    // Manpower-supply bookings bill by the hour, so overwrite the actual hours
+    // Manpower-supply bookings bill by the hour, so overwrite actual hours
     // with whatever the admin entered here (that is the billable number).
     if (manpower && typeof mpHours === "number" && mpHours > 0) {
       update.hours = mpHours;
@@ -398,11 +409,13 @@ function PriceModal({
     onDone();
   }
 
+  const inputCx = "w-full border rounded-xl px-4 py-3 font-semibold focus:outline-none focus:ring-4 focus:ring-brand-blue/30 focus:border-brand-blue";
+
   return (
     <Modal onClose={onClose}>
       <div className="text-lg font-bold text-brand-ink mb-1">Set Price — Villa {row.villa}</div>
       <div className="text-xs text-gray-500 mb-4">
-        {row.description} · {row.client} · Actual {row.hours}h (target {row.target_hours}h)
+        {row.description} · {row.client}{row.hours != null ? ` · Actual ${row.hours}h` : ""}
         {manpower && (
           <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 font-semibold text-[11px]">
             Manpower supply
@@ -410,26 +423,47 @@ function PriceModal({
         )}
       </div>
 
+      {!manpower && (
+        <div className="inline-flex rounded-full border border-gray-200 bg-gray-50 p-0.5 mb-4" role="tablist" aria-label="Pricing mode">
+          {([
+            { key: "total",    label: "Total price" },
+            { key: "quantity", label: "Quantity × price" },
+          ] as { key: NormalPriceMode; label: string }[]).map((m) => {
+            const active = mode === m.key;
+            return (
+              <button
+                key={m.key}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setMode(m.key)}
+                className={`text-xs font-semibold px-3 py-1.5 rounded-full transition ${
+                  active ? "bg-brand-ink text-white shadow-sm" : "text-gray-600 hover:text-brand-ink"
+                }`}
+              >
+                {m.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {manpower ? (
         <>
           <div className="grid grid-cols-2 gap-3 mb-4">
             <label className="block">
               <div className="text-xs font-semibold text-gray-500 mb-1">Hours *</div>
-              <input
-                type="number" min={0} step="0.5" autoFocus
+              <input type="number" min={0} step="0.5" autoFocus
                 value={mpHours}
                 onChange={(e) => setMpHours(e.target.value ? +e.target.value : "")}
-                className="w-full border rounded-xl px-4 py-3 font-semibold focus:outline-none focus:ring-4 focus:ring-brand-blue/30 focus:border-brand-blue"
-              />
+                className={inputCx}/>
             </label>
             <label className="block">
               <div className="text-xs font-semibold text-gray-500 mb-1">AED / hr *</div>
-              <input
-                type="number" min={0} step="0.01"
+              <input type="number" min={0} step="0.01"
                 value={mpRate}
                 onChange={(e) => setMpRate(e.target.value ? +e.target.value : "")}
-                className="w-full border rounded-xl px-4 py-3 font-semibold focus:outline-none focus:ring-4 focus:ring-brand-blue/30 focus:border-brand-blue"
-              />
+                className={inputCx}/>
             </label>
           </div>
           <div className="rounded-xl bg-brand-blueSoft/60 border border-brand-blue/20 px-4 py-3 mb-4 flex items-center justify-between">
@@ -437,15 +471,36 @@ function PriceModal({
             <b className="text-brand-ink text-lg">AED {mpTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</b>
           </div>
         </>
+      ) : mode === "quantity" ? (
+        <>
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            <label className="block">
+              <div className="text-xs font-semibold text-gray-500 mb-1">Quantity *</div>
+              <input type="number" min={0} step="1" autoFocus
+                value={qty}
+                onChange={(e) => setQty(e.target.value ? +e.target.value : "")}
+                className={inputCx}/>
+            </label>
+            <label className="block">
+              <div className="text-xs font-semibold text-gray-500 mb-1">Price per quantity (AED) *</div>
+              <input type="number" min={0} step="0.01"
+                value={qtyPrice}
+                onChange={(e) => setQtyPrice(e.target.value ? +e.target.value : "")}
+                className={inputCx}/>
+            </label>
+          </div>
+          <div className="rounded-xl bg-brand-blueSoft/60 border border-brand-blue/20 px-4 py-3 mb-4 flex items-center justify-between">
+            <span className="text-xs text-brand-blueDark font-semibold uppercase tracking-wide">Total (auto)</span>
+            <b className="text-brand-ink text-lg">AED {qtyTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</b>
+          </div>
+        </>
       ) : (
         <label className="block mb-4">
           <div className="text-xs font-semibold text-gray-500 mb-1">Total Price (AED) *</div>
-          <input
-            type="number" min={0} step="0.01" autoFocus
+          <input type="number" min={0} step="0.01" autoFocus
             value={price}
             onChange={(e) => setPrice(e.target.value ? +e.target.value : "")}
-            className="w-full border rounded-xl px-4 py-3 font-semibold focus:outline-none focus:ring-4 focus:ring-brand-blue/30 focus:border-brand-blue"
-          />
+            className={inputCx}/>
         </label>
       )}
 

@@ -6,7 +6,6 @@ import { passesConditions, rateTone, rateToneClasses } from "../lib/rate";
 import { fetchAll, todayDubai } from "../lib/data";
 import { AddConditionPopover, FilterChip } from "../components/FilterBuilder";
 import { ClientMetricsChart } from "../components/ClientMetricsChart";
-import { CompanyRatioPanel } from "../components/CompanyRatioPanel";
 import { Toast } from "../components/Toast";
 import type { ToastKind } from "../components/Toast";
 import { FullEditModal } from "../components/FullEditModal";
@@ -14,6 +13,48 @@ import { FullEditModal } from "../components/FullEditModal";
 const PAGE_SIZE = 50;
 const TEXT_COLS: FilterCol[] = [
   "cluster","phase","villa","bedroom_type","floor_type","description","client","status","apartment_number",
+];
+
+/* Column keys that are sortable and the kind of comparator they use. Keys
+ * align with the WorkEntry field name; "number" uses numeric compare, "date"
+ * compares the YYYY-MM-DD string (lexicographic == chronological), everything
+ * else is a natural-order string compare (so "V-2" sorts before "V-10"). */
+const SORT_KIND: Record<string, "text" | "number" | "date"> = {
+  cluster: "text", phase: "text", villa: "text",
+  apartment_number: "text", bedroom_type: "text", description: "text", floor_type: "text",
+  start_date: "date", end_date: "date",
+  hours: "number", total_price: "number", per_hour_ratio: "number",
+  power_point: "number", gi_box_nos: "number", data_point: "number",
+  telephone_point: "number", lighting_point: "number", fcu_point: "number", db_conduit: "number",
+  client: "text", employee_name: "text",
+};
+
+/* Table columns, in render order. Row-number ("#") and the actions column
+ * aren't sortable, so their col is null. */
+const COLUMNS: { label: string; col: string | null }[] = [
+  { label: "#",         col: null },
+  { label: "Cluster",   col: "cluster" },
+  { label: "Phase",     col: "phase" },
+  { label: "Villa",     col: "villa" },
+  { label: "Apt",       col: "apartment_number" },
+  { label: "BR",        col: "bedroom_type" },
+  { label: "Desc",      col: "description" },
+  { label: "Fl",        col: "floor_type" },
+  { label: "Start",     col: "start_date" },
+  { label: "End",       col: "end_date" },
+  { label: "Actual",    col: "hours" },
+  { label: "Price",     col: "total_price" },
+  { label: "AED/hr",    col: "per_hour_ratio" },
+  { label: "PS",        col: "power_point" },
+  { label: "GI",        col: "gi_box_nos" },
+  { label: "20mm",      col: "data_point" },
+  { label: "25mm",      col: "telephone_point" },
+  { label: "32mm",      col: "lighting_point" },
+  { label: "50mm",      col: "fcu_point" },
+  { label: "DB",        col: "db_conduit" },
+  { label: "Client",    col: "client" },
+  { label: "Employee",  col: "employee_name" },
+  { label: "",          col: null },
 ];
 
 type ActiveView =
@@ -133,22 +174,56 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const rows = useMemo(() => {
+  const filteredRows = useMemo(() => {
     if (conds.length === 0) return finalized;
     return finalized.filter((r) => passesConditions(r, conds));
   }, [finalized, conds]);
 
+  // Click-to-sort state. Click cycles none → asc → desc → none. Click on a
+  // different column snaps the direction back to asc. Metrics still read from
+  // filteredRows so sort doesn't change totals.
+  const [sortCol, setSortCol] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc" | null>(null);
+  function toggleSort(col: string) {
+    if (sortCol !== col) { setSortCol(col); setSortDir("asc"); return; }
+    if (sortDir === "asc")  { setSortDir("desc"); return; }
+    if (sortDir === "desc") { setSortCol(null); setSortDir(null); return; }
+    setSortDir("asc");
+  }
+  const rows = useMemo(() => {
+    if (!sortCol || !sortDir) return filteredRows;
+    const kind = SORT_KIND[sortCol] ?? "text";
+    const copy = [...filteredRows];
+    copy.sort((a, b) => {
+      const va = (a as any)[sortCol];
+      const vb = (b as any)[sortCol];
+      // null/undefined/empty always sort to the END regardless of direction,
+      // so empty cells don't clog the top of the table on a fresh sort.
+      const aMissing = va == null || va === "";
+      const bMissing = vb == null || vb === "";
+      if (aMissing && bMissing) return 0;
+      if (aMissing) return 1;
+      if (bMissing) return -1;
+      let cmp = 0;
+      if (kind === "number") cmp = Number(va) - Number(vb);
+      else if (kind === "date") cmp = String(va).localeCompare(String(vb));
+      else cmp = String(va).localeCompare(String(vb), undefined, { numeric: true, sensitivity: "base" });
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return copy;
+  }, [filteredRows, sortCol, sortDir]);
+
   const metrics = useMemo(() => {
-    const hours = rows.reduce((s, r) => s + Number(r.hours || 0), 0);
-    const revenue = rows.reduce((s, r) => s + Number(r.total_price || 0), 0);
+    const hours = filteredRows.reduce((s, r) => s + Number(r.hours || 0), 0);
+    const revenue = filteredRows.reduce((s, r) => s + Number(r.total_price || 0), 0);
     const perHour = hours > 0 ? revenue / hours : 0;
-    return { hours, revenue, perHour, count: rows.length };
-  }, [rows]);
+    return { hours, revenue, perHour, count: filteredRows.length };
+  }, [filteredRows]);
 
   // Pagination
   const pages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   const clampedPage = Math.min(page, pages - 1);
-  useEffect(() => { setPage(0); }, [conds]);
+  useEffect(() => { setPage(0); }, [conds, sortCol, sortDir]);
   const pageRows = rows.slice(clampedPage * PAGE_SIZE, clampedPage * PAGE_SIZE + PAGE_SIZE);
 
   const allClients = optionsByCol.client ?? [];
@@ -285,13 +360,11 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
           {/* Metrics summary strip */}
           <MetricCards m={metrics} />
 
-          {/* Top row: Ratios (wider) and Client Metrics chart (narrower).
-              Capped tight on desktop so ~7+ table rows stay visible below. */}
-          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 xl:h-[24vh] xl:min-h-[210px] xl:max-h-[260px]">
-            <section className="lg:col-span-3 overflow-y-auto min-h-0">
-              <CompanyRatioPanel rows={rows} />
-            </section>
-            <section className="lg:col-span-2 overflow-y-auto min-h-0">
+          {/* Top row: Client Metrics chart only (ratio panel hidden — targets
+              no longer collected, so the profit/loss framing no longer applies).
+              Capped tight on desktop so ~8+ table rows stay visible below. */}
+          <div className="grid grid-cols-1 gap-4 xl:h-[22vh] xl:min-h-[200px] xl:max-h-[240px]">
+            <section className="overflow-y-auto min-h-0">
               <ClientMetricsChart
                 rows={rows}
                 allClients={allClients}
@@ -391,14 +464,31 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
               <table className="min-w-full text-sm">
                 <thead className="bg-gray-50 text-gray-600 text-xs uppercase sticky top-0 z-10">
                   <tr>
-                    {["#","Cluster","Phase","Villa","Apt","BR","Desc","Fl","Start","End","Target","Actual","Price","AED/hr","PS","GI","20mm","25mm","32mm","50mm","DB","Client","Employee",""].map((h) => (
-                      <th key={h} className="px-3 py-2 text-left whitespace-nowrap">{h}</th>
-                    ))}
+                    {COLUMNS.map((h, idx) => {
+                      const active = h.col && h.col === sortCol;
+                      const arrow = active ? (sortDir === "asc" ? " ↑" : sortDir === "desc" ? " ↓" : "") : "";
+                      return (
+                        <th key={`${h.label}-${idx}`} className="px-3 py-2 text-left whitespace-nowrap">
+                          {h.col ? (
+                            <button
+                              type="button"
+                              onClick={() => toggleSort(h.col!)}
+                              aria-sort={active ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
+                              className={`inline-flex items-center gap-0.5 cursor-pointer select-none hover:text-brand-ink transition ${active ? "text-brand-blueDark" : ""}`}
+                              title={active ? `Click to ${sortDir === "asc" ? "sort descending" : "clear sort"}` : "Click to sort ascending"}
+                            >
+                              <span>{h.label}</span>
+                              <span className="text-[10px]">{arrow}</span>
+                            </button>
+                          ) : h.label}
+                        </th>
+                      );
+                    })}
                   </tr>
                 </thead>
                 <tbody>
                   {pageRows.length === 0 ? (
-                    <tr><td className="p-10 text-center text-gray-400" colSpan={24}>No matching entries.</td></tr>
+                    <tr><td className="p-10 text-center text-gray-400" colSpan={23}>No matching entries.</td></tr>
                   ) : pageRows.map((r, i) => {
                     const tone = rateTone(r);
                     return (
@@ -413,7 +503,6 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
                         <td className="px-3 py-2">{r.floor_type}</td>
                         <td className="px-3 py-2 text-xs text-gray-500">{r.start_date ?? ""}</td>
                         <td className="px-3 py-2 text-xs text-gray-500">{r.end_date ?? ""}</td>
-                        <td className="px-3 py-2">{r.target_hours ?? ""}</td>
                         <td className="px-3 py-2">{r.hours ?? ""}</td>
                         <td className="px-3 py-2">{r.total_price != null ? Number(r.total_price).toLocaleString() : ""}</td>
                         <td className="px-3 py-2">
@@ -555,11 +644,12 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
 
 /* ============================== */
 /** Single thin strip — Entries · Total Hours · Revenue · Avg AED/hr — so the
- *  entries table below gets most of the vertical space. Wraps on narrow screens. */
+ *  entries table below gets most of the vertical space. Numbers are the top
+ *  typographic layer so they read at a glance from across the room. */
 function MetricCards({ m }: { m: { hours: number; revenue: number; perHour: number; count: number } }) {
   return (
-    <div className="rounded-xl bg-white border border-slate-200/70 shadow-sm px-4 py-2.5 flex flex-wrap items-center gap-x-6 gap-y-1">
-      <MetricInline label="Entries" value={m.count.toString()} />
+    <div className="rounded-xl bg-white border border-slate-200/70 shadow-sm px-4 py-2.5 flex flex-wrap items-center gap-x-8 gap-y-2">
+      <MetricInline label="Entries" value={m.count.toLocaleString()} />
       <MetricInline label="Total Hours" value={m.hours.toFixed(0)} />
       <MetricInline label="Revenue" value={`AED ${m.revenue.toLocaleString()}`} accent />
       <MetricInline label="Avg AED/hr" value={m.perHour.toFixed(2)} accent />
@@ -569,9 +659,11 @@ function MetricCards({ m }: { m: { hours: number; revenue: number; perHour: numb
 
 function MetricInline({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
   return (
-    <div className="flex items-baseline gap-2 min-w-0">
-      <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-500">{label}</span>
-      <span className={`text-base font-bold truncate ${accent ? "text-brand-blueDark" : "text-brand-ink"}`}>{value}</span>
+    <div className="flex items-baseline gap-2.5 min-w-0">
+      <span className="text-[11px] uppercase tracking-wider font-semibold text-slate-500">{label}</span>
+      <span className={`text-2xl font-extrabold tabular-nums leading-none truncate ${accent ? "text-brand-blueDark" : "text-brand-ink"}`}>
+        {value}
+      </span>
     </div>
   );
 }
@@ -638,7 +730,7 @@ function buildExportData(rows: WorkEntry[]) {
     "S.No","Cluster","Phase","Villa","Bedroom","Description","Floor",
     "Start Date","End Date","Status","Client","Employee",
     "Total Manpower","Check-in","Check-out","Break Start","Break End",
-    "Target Hours","Actual Hours","Total Price (AED)","AED per Hour",
+    "Actual Hours","Total Price (AED)","AED per Hour",
     ...exportPointFields.map((p) => EXPORT_LABEL_OVERRIDES[p.key as string] ?? p.label),
     "remark",
   ];
@@ -652,7 +744,7 @@ function buildExportData(rows: WorkEntry[]) {
       (r.check_out_time ?? "").toString().slice(0,5),
       (r.break_start_time ?? "").toString().slice(0,5),
       (r.break_end_time ?? "").toString().slice(0,5),
-      r.target_hours ?? "", r.hours ?? "",
+      r.hours ?? "",
       r.total_price != null ? Number(r.total_price) : "",
       r.per_hour_ratio != null ? Number(r.per_hour_ratio) : "",
     ];

@@ -23,6 +23,27 @@ export function FullEditModal({
   const [f, setF] = useState<Partial<WorkEntry>>(() => ({ ...row }));
   const [saving, setSaving] = useState(false);
 
+  // Pricing helpers — NOT persisted to DB. They let the admin quickly arrive
+  // at a Total price via two common billing shapes:
+  //   • Per-hour price × actual hours   (hourly jobs)
+  //   • Per-quantity price × 1          (unit-priced lots; qty baked into entry)
+  // The "Use →" chip copies the computed total into the Total price field.
+  const [perHourPrice, setPerHourPrice] = useState<string>("");
+  const [perQuantityPrice, setPerQuantityPrice] = useState<string>("");
+
+  const helperHint = (() => {
+    const php = parseFloat(perHourPrice);
+    const pqp = parseFloat(perQuantityPrice);
+    const hrs = f.hours != null && (f.hours as any) !== "" ? Number(f.hours) : null;
+    if (Number.isFinite(php) && php > 0 && hrs && hrs > 0) {
+      return { label: `${hrs}h × AED ${php.toLocaleString(undefined, { maximumFractionDigits: 2 })}/hr =`, total: +(php * hrs).toFixed(2) };
+    }
+    if (Number.isFinite(pqp) && pqp > 0) {
+      return { label: `Per-quantity price (one unit) =`, total: +pqp.toFixed(2) };
+    }
+    return null;
+  })();
+
   function set<K extends keyof WorkEntry>(k: K, v: WorkEntry[K]) {
     setF((p) => ({ ...p, [k]: v }));
   }
@@ -39,7 +60,6 @@ export function FullEditModal({
       client: f.client,
       start_date: f.start_date || null,
       end_date: f.end_date || null,
-      target_hours: Number(f.target_hours),
       hours: f.hours != null && f.hours !== ("" as any) ? Number(f.hours) : null,
       apartment_number: f.apartment_number?.toString().trim() ? String(f.apartment_number).trim() : null,
       total_manpower: f.total_manpower != null && f.total_manpower !== ("" as any) ? Number(f.total_manpower) : null,
@@ -76,16 +96,14 @@ export function FullEditModal({
     if (!f.villa?.trim()) return flash("Villa is required", "error");
     if (!f.client?.trim()) return flash("Client is required", "error");
     if (!f.description?.trim()) return flash("Description is required", "error");
-    if (!f.target_hours || Number(f.target_hours) <= 0) return flash("Target hours must be > 0", "error");
     const nums: [string, unknown][] = [
-      ["Target hours", f.target_hours], ["Actual hours", f.hours],
+      ["Actual hours", f.hours],
       ["Total manpower", f.total_manpower], ["Total price", f.total_price],
       ...POINT_FIELDS.map((p) => [p.label, (f as any)[p.key]] as [string, unknown]),
     ];
     const neg = nums.find(([, v]) => v != null && (v as any) !== "" && Number(v) < 0);
     if (neg) return flash(`${neg[0]} cannot be negative`, "error");
     const cap = maxHours(f.total_manpower);
-    if (Number(f.target_hours) > cap) return flash(`Target hours look too high — max ${cap}h for ${f.total_manpower} people`, "error");
     if (f.hours != null && (f.hours as any) !== "" && Number(f.hours) > cap) {
       return flash(`Actual hours look too high — max ${cap}h for ${f.total_manpower} people`, "error");
     }
@@ -173,19 +191,35 @@ export function FullEditModal({
 
           <Section title="Hours & price">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <FE label="Target hours *">
-                <input type="number" min={0} step="0.5" value={f.target_hours ?? ""}
-                  onChange={(e) => set("target_hours", e.target.value ? Number(e.target.value) : null)} className={cx}/>
-              </FE>
               <FE label="Actual hours">
                 <input type="number" min={0} step="0.5" value={f.hours ?? ""}
                   onChange={(e) => set("hours", e.target.value ? Number(e.target.value) : null)} className={cx}/>
+              </FE>
+              <FE label="Per-hour price (AED)">
+                <input type="number" min={0} step="0.01" value={perHourPrice}
+                  onChange={(e) => setPerHourPrice(e.target.value)} className={cx}
+                  placeholder="helper · × hours"/>
+              </FE>
+              <FE label="Per-quantity price (AED)">
+                <input type="number" min={0} step="0.01" value={perQuantityPrice}
+                  onChange={(e) => setPerQuantityPrice(e.target.value)} className={cx}
+                  placeholder="helper · one unit"/>
               </FE>
               <FE label="Total price (AED)">
                 <input type="number" min={0} step="0.01" value={f.total_price ?? ""}
                   onChange={(e) => set("total_price", e.target.value ? Number(e.target.value) : null)} className={cx}/>
               </FE>
             </div>
+            {helperHint && (
+              <div className="mt-2 flex items-center justify-between gap-3 bg-brand-blueSoft/60 border border-brand-blue/20 rounded-lg px-3 py-2 text-xs">
+                <span className="text-brand-blueDark">{helperHint.label}</span>
+                <button type="button"
+                  onClick={() => set("total_price", helperHint.total)}
+                  className="font-bold text-brand-ink hover:underline">
+                  Use → AED {helperHint.total.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                </button>
+              </div>
+            )}
           </Section>
 
           <Section title="Point counts">
@@ -227,7 +261,7 @@ export function FullEditModal({
 /* ---- helpers (kept inside the module so both callers share one copy) ---- */
 
 const TIME_KEYS = new Set(["check_in_time", "check_out_time", "break_start_time", "break_end_time"]);
-const NUM_KEYS = new Set(["target_hours", "hours", "total_manpower", "total_price"]);
+const NUM_KEYS = new Set(["hours", "total_manpower", "total_price"]);
 const POINT_KEYS = new Set(POINT_FIELDS.map((p) => p.key as string));
 
 /** Normalise a field value so "unchanged" compares equal regardless of format

@@ -16,7 +16,6 @@ const COLS: { key: FilterCol; label: string }[] = [
   { key: "end_date",         label: "End date" },
   { key: "total_manpower",   label: "Total manpower" },
   { key: "hours",            label: "Actual hours" },
-  { key: "target_hours",     label: "Target hours" },
   { key: "total_price",      label: "Total price" },
   { key: "per_hour_ratio",   label: "AED / hr" },
 ];
