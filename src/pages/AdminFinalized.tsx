@@ -6,6 +6,7 @@ import { passesConditions, rateTone, rateToneClasses } from "../lib/rate";
 import { fetchAll, todayDubai } from "../lib/data";
 import { AddConditionPopover, FilterChip } from "../components/FilterBuilder";
 import { ClientMetricsChart } from "../components/ClientMetricsChart";
+import { CompanyRatioPanel } from "../components/CompanyRatioPanel";
 import { Toast } from "../components/Toast";
 import type { ToastKind } from "../components/Toast";
 import { FullEditModal } from "../components/FullEditModal";
@@ -319,13 +320,16 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
   return (
     // Fixed-height split-screen only on wide desktops (≥1280px). On narrower
     // windows everything stacks and scrolls normally so nothing is cut off.
-    <div className="xl:h-[calc(100vh-140px)] xl:overflow-hidden">
+    <div className="xl:h-[calc(100vh-140px)] xl:overflow-hidden flex flex-col gap-4">
       {toast && <Toast msg={toast.msg} kind={toast.kind} />}
 
-      {/* TWO-column grid: [ Views sidebar | Right pane ].
-          The right pane itself splits top (ratios + chart side-by-side) and
-          bottom (toolbar + full-width entries table ≈ 60-65% of the height). */}
-      <div className="grid gap-4 xl:h-full grid-cols-1 xl:grid-cols-[200px_minmax(0,1fr)]">
+      {/* Metrics summary strip — full width across the top */}
+      <MetricCards m={metrics} />
+
+      {/* THREE-column grid below: [ Views sidebar | Charts column | Table ].
+          Charts column scrolls internally so the table always claims the right
+          side at its full table-friendly width. */}
+      <div className="grid gap-4 xl:flex-1 xl:min-h-0 grid-cols-1 xl:grid-cols-[200px_360px_minmax(0,1fr)]">
         {/* LEFT: Views sidebar (scrolls internally if long) */}
         <aside className="bg-white rounded-2xl shadow-sm p-3 overflow-y-auto">
           <div className="text-xs font-bold text-gray-500 uppercase tracking-wide px-2 mb-2">Views</div>
@@ -355,26 +359,18 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
           </div>
         </aside>
 
-        {/* RIGHT: top (metrics + ratios + chart) stacked above the entries table. */}
-        <div className="flex flex-col min-h-0 min-w-0 gap-4">
-          {/* Metrics summary strip */}
-          <MetricCards m={metrics} />
+        {/* MIDDLE: Company ratio + client metrics chart, stacked. Independent scroll. */}
+        <section className="overflow-y-auto min-h-0 space-y-4 pr-1">
+          <CompanyRatioPanel rows={rows} />
+          <ClientMetricsChart
+            rows={rows}
+            allClients={allClients}
+            onCompareClients={applyClientComparison}
+          />
+        </section>
 
-          {/* Top row: Client Metrics chart only (ratio panel hidden — targets
-              no longer collected, so the profit/loss framing no longer applies).
-              Capped tight on desktop so ~8+ table rows stay visible below. */}
-          <div className="grid grid-cols-1 gap-4 xl:h-[22vh] xl:min-h-[200px] xl:max-h-[240px]">
-            <section className="overflow-y-auto min-h-0">
-              <ClientMetricsChart
-                rows={rows}
-                allClients={allClients}
-                onCompareClients={applyClientComparison}
-              />
-            </section>
-          </div>
-
-          {/* Bottom: toolbar + full-width table (fills remaining height) */}
-          <section className="flex flex-col min-h-0 min-w-0 gap-4 flex-1">
+        {/* RIGHT: toolbar + full-width entries table (independent scroll) */}
+        <section className="flex flex-col min-h-0 min-w-0 gap-4">
           <div className="bg-white rounded-2xl shadow-sm p-4 space-y-3 flex-shrink-0">
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <div>
@@ -563,7 +559,6 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
             </div>
           </div>
         </section>
-        </div>
       </div>
 
       <AddConditionPopover
