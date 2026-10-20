@@ -62,6 +62,13 @@ export default function AdminEmployees() {
   const [newPw, setNewPw] = useState("");
   const [resetting, setResetting] = useState(false);
 
+  // Rotate & reveal — admin clicks on a row; portal generates a strong
+  // password, resets it in Auth, and shows the plaintext ONCE here so the
+  // admin can copy and share it. Nothing is persisted on the client.
+  const [rotatingId, setRotatingId] = useState<string | null>(null);
+  const [reveal, setReveal] = useState<{ emp: Emp; password: string } | null>(null);
+  const [copied, setCopied] = useState(false);
+
   async function load() {
     setLoading(true); setErr(null);
     try {
@@ -116,6 +123,35 @@ export default function AdminEmployees() {
       setResetFor(null); setNewPw("");
     } catch (e: any) { setErr(e.message); }
     finally { setResetting(false); }
+  }
+
+  async function doRotate(emp: Emp) {
+    if (!confirm(
+      `Rotate password for ${emp.full_name}?\n\n` +
+      `The current password will stop working immediately. ` +
+      `A new strong password will be shown once so you can copy and share it.`,
+    )) return;
+    setRotatingId(emp.id); setErr(null);
+    try {
+      const r = (await call("rotate_password", { employee_id: emp.id })) as { password: string };
+      setReveal({ emp, password: r.password });
+      setCopied(false);
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setRotatingId(null);
+    }
+  }
+
+  async function copyPassword() {
+    if (!reveal) return;
+    try {
+      await navigator.clipboard.writeText(reveal.password);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      flash("Clipboard blocked — select and copy manually", "error");
+    }
   }
 
   return (
@@ -227,9 +263,17 @@ export default function AdminEmployees() {
                     }`}>{r.active ? "active" : "inactive"}</span>
                   </td>
                   <td className="px-4 py-3 text-gray-500 text-xs">{new Date(r.created_at).toLocaleDateString()}</td>
-                  <td className="px-4 py-3 text-right space-x-2">
+                  <td className="px-4 py-3 text-right space-x-3">
+                    <button
+                      onClick={() => doRotate(r)}
+                      disabled={rotatingId === r.id || !r.auth_user_id}
+                      className="text-brand-blueDark hover:underline text-sm disabled:opacity-40 disabled:no-underline"
+                      title="Generate a new strong password and show it once"
+                    >
+                      {rotatingId === r.id ? "Rotating…" : "Rotate & reveal"}
+                    </button>
                     <button onClick={() => setResetFor(r)}
-                      className="text-brand-blueDark hover:underline text-sm">Reset password</button>
+                      className="text-brand-blueDark hover:underline text-sm">Reset</button>
                     <button onClick={() => setConfirmDel(r)}
                       disabled={r.id === me?.id}
                       className="text-red-600 hover:underline text-sm disabled:opacity-30 disabled:no-underline">Delete</button>
@@ -254,6 +298,48 @@ export default function AdminEmployees() {
             <button onClick={doDelete} disabled={deleting}
               className="px-4 py-2 rounded-lg bg-red-600 text-white disabled:opacity-50">
               {deleting ? "Deleting…" : "Delete"}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Rotate & reveal result */}
+      {reveal && (
+        <Modal onClose={() => setReveal(null)}>
+          <div className="text-lg font-bold text-brand-ink mb-1">New password</div>
+          <div className="text-sm text-gray-600 mb-4">
+            For <b>{reveal.emp.full_name}</b>{reveal.emp.username && <> · <code className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">{reveal.emp.username}</code></>}
+          </div>
+
+          <div className="bg-brand-blueSoft/70 border border-brand-blue/30 rounded-xl p-4 mb-4">
+            <div className="text-[10px] uppercase tracking-wider font-semibold text-brand-blueDark mb-2">
+              Password · copy now, this is shown only once
+            </div>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 font-mono text-lg font-bold text-brand-ink tracking-wider select-all bg-white rounded-lg px-3 py-2 border border-brand-blue/20 break-all">
+                {reveal.password}
+              </code>
+              <button
+                onClick={copyPassword}
+                className={`font-semibold text-sm px-3 py-2 rounded-lg transition flex-shrink-0 ${
+                  copied ? "bg-green-600 text-white" : "bg-brand-ink text-white hover:bg-black"
+                }`}
+              >
+                {copied ? "✓ Copied" : "Copy"}
+              </button>
+            </div>
+          </div>
+
+          <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
+            ⚠ The old password stopped working the moment you clicked Rotate.
+            Share this new one with the employee before closing this dialog —
+            after you close, no one can read it again.
+          </div>
+
+          <div className="flex justify-end">
+            <button onClick={() => setReveal(null)}
+              className="px-4 py-2 rounded-lg bg-brand-ink text-white font-bold">
+              Done
             </button>
           </div>
         </Modal>
