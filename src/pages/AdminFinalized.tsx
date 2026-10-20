@@ -175,10 +175,21 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Free-text search layered on top of the saved-view conditions.
+  // Case-insensitive substring match across the admin-visible string columns.
+  const [search, setSearch] = useState("");
   const filteredRows = useMemo(() => {
-    if (conds.length === 0) return finalized;
-    return finalized.filter((r) => passesConditions(r, conds));
-  }, [finalized, conds]);
+    const base = conds.length === 0 ? finalized : finalized.filter((r) => passesConditions(r, conds));
+    const q = search.trim().toLowerCase();
+    if (!q) return base;
+    return base.filter((r) => {
+      const hay = [
+        r.villa, r.cluster, r.phase, r.client, r.description,
+        r.employee_name, r.apartment_number, r.bedroom_type, r.floor_type, r.status,
+      ].map((v) => (v ?? "").toString().toLowerCase()).join(" | ");
+      return hay.includes(q);
+    });
+  }, [finalized, conds, search]);
 
   // Click-to-sort state. Click cycles none → asc → desc → none. Click on a
   // different column snaps the direction back to asc. Metrics still read from
@@ -224,7 +235,7 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
   // Pagination
   const pages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   const clampedPage = Math.min(page, pages - 1);
-  useEffect(() => { setPage(0); }, [conds, sortCol, sortDir]);
+  useEffect(() => { setPage(0); }, [conds, sortCol, sortDir, search]);
   const pageRows = rows.slice(clampedPage * PAGE_SIZE, clampedPage * PAGE_SIZE + PAGE_SIZE);
 
   const allClients = optionsByCol.client ?? [];
@@ -384,6 +395,29 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
                     ? "Filter is locked — click Edit filter to change it."
                     : "Compose conditions to narrow the results."}
                 </div>
+              </div>
+              {/* Free-text search — stacks after conditions + sort. Matches
+                  villa, cluster, phase, client, description, employee, apt,
+                  bedroom/floor type, and status. */}
+              <div className="relative flex-1 min-w-[200px] max-w-xs">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none">⌕</span>
+                <input
+                  type="search"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search villa, client, description…"
+                  className="w-full border border-slate-200 rounded-lg pl-8 pr-8 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:border-brand-blue"
+                />
+                {search && (
+                  <button
+                    type="button"
+                    aria-label="Clear search"
+                    onClick={() => setSearch("")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-brand-ink text-lg leading-none"
+                  >
+                    ×
+                  </button>
+                )}
               </div>
               <div className="flex gap-2 flex-wrap">
                 {!locked && (

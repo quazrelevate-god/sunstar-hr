@@ -57,16 +57,14 @@ export default function AdminEmployees() {
   const [confirmDel, setConfirmDel] = useState<Emp | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  // Reset password
+  // Reset password — admin types a new password, Save fires the reset, and
+  // the same modal flips to a "saved" state showing the typed value with a
+  // Copy button so the admin can send it to the worker right away. Nothing
+  // persists on the client; closing the modal clears the state.
   const [resetFor, setResetFor] = useState<Emp | null>(null);
   const [newPw, setNewPw] = useState("");
   const [resetting, setResetting] = useState(false);
-
-  // Rotate & reveal — admin clicks on a row; portal generates a strong
-  // password, resets it in Auth, and shows the plaintext ONCE here so the
-  // admin can copy and share it. Nothing is persisted on the client.
-  const [rotatingId, setRotatingId] = useState<string | null>(null);
-  const [reveal, setReveal] = useState<{ emp: Emp; password: string } | null>(null);
+  const [resetSaved, setResetSaved] = useState(false);
   const [copied, setCopied] = useState(false);
 
   async function load() {
@@ -119,34 +117,22 @@ export default function AdminEmployees() {
     setResetting(true); setErr(null);
     try {
       await call("reset_password", { employee_id: resetFor.id, password: newPw });
-      flash(`Password reset for ${resetFor.full_name}`, "success");
-      setResetFor(null); setNewPw("");
+      flash(`Password set for ${resetFor.full_name}`, "success");
+      setResetSaved(true);  // flip modal to "saved" state (keeps password visible)
     } catch (e: any) { setErr(e.message); }
     finally { setResetting(false); }
   }
 
-  async function doRotate(emp: Emp) {
-    if (!confirm(
-      `Rotate password for ${emp.full_name}?\n\n` +
-      `The current password will stop working immediately. ` +
-      `A new strong password will be shown once so you can copy and share it.`,
-    )) return;
-    setRotatingId(emp.id); setErr(null);
-    try {
-      const r = (await call("rotate_password", { employee_id: emp.id })) as { password: string };
-      setReveal({ emp, password: r.password });
-      setCopied(false);
-    } catch (e: any) {
-      setErr(e.message);
-    } finally {
-      setRotatingId(null);
-    }
+  function closeResetModal() {
+    setResetFor(null);
+    setNewPw("");
+    setResetSaved(false);
+    setCopied(false);
   }
 
   async function copyPassword() {
-    if (!reveal) return;
     try {
-      await navigator.clipboard.writeText(reveal.password);
+      await navigator.clipboard.writeText(newPw);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
@@ -265,15 +251,13 @@ export default function AdminEmployees() {
                   <td className="px-4 py-3 text-gray-500 text-xs">{new Date(r.created_at).toLocaleDateString()}</td>
                   <td className="px-4 py-3 text-right space-x-3">
                     <button
-                      onClick={() => doRotate(r)}
-                      disabled={rotatingId === r.id || !r.auth_user_id}
+                      onClick={() => setResetFor(r)}
+                      disabled={!r.auth_user_id}
                       className="text-brand-blueDark hover:underline text-sm disabled:opacity-40 disabled:no-underline"
-                      title="Generate a new strong password and show it once"
+                      title="Set a new password and copy it to share"
                     >
-                      {rotatingId === r.id ? "Rotating…" : "Rotate & reveal"}
+                      Set password
                     </button>
-                    <button onClick={() => setResetFor(r)}
-                      className="text-brand-blueDark hover:underline text-sm">Reset</button>
                     <button onClick={() => setConfirmDel(r)}
                       disabled={r.id === me?.id}
                       className="text-red-600 hover:underline text-sm disabled:opacity-30 disabled:no-underline">Delete</button>
@@ -303,67 +287,65 @@ export default function AdminEmployees() {
         </Modal>
       )}
 
-      {/* Rotate & reveal result */}
-      {reveal && (
-        <Modal onClose={() => setReveal(null)}>
-          <div className="text-lg font-bold text-brand-ink mb-1">New password</div>
-          <div className="text-sm text-gray-600 mb-4">
-            For <b>{reveal.emp.full_name}</b>{reveal.emp.username && <> · <code className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">{reveal.emp.username}</code></>}
-          </div>
-
-          <div className="bg-brand-blueSoft/70 border border-brand-blue/30 rounded-xl p-4 mb-4">
-            <div className="text-[10px] uppercase tracking-wider font-semibold text-brand-blueDark mb-2">
-              Password · copy now, this is shown only once
-            </div>
-            <div className="flex items-center gap-2">
-              <code className="flex-1 font-mono text-lg font-bold text-brand-ink tracking-wider select-all bg-white rounded-lg px-3 py-2 border border-brand-blue/20 break-all">
-                {reveal.password}
-              </code>
-              <button
-                onClick={copyPassword}
-                className={`font-semibold text-sm px-3 py-2 rounded-lg transition flex-shrink-0 ${
-                  copied ? "bg-green-600 text-white" : "bg-brand-ink text-white hover:bg-black"
-                }`}
-              >
-                {copied ? "✓ Copied" : "Copy"}
-              </button>
-            </div>
-          </div>
-
-          <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
-            ⚠ The old password stopped working the moment you clicked Rotate.
-            Share this new one with the employee before closing this dialog —
-            after you close, no one can read it again.
-          </div>
-
-          <div className="flex justify-end">
-            <button onClick={() => setReveal(null)}
-              className="px-4 py-2 rounded-lg bg-brand-ink text-white font-bold">
-              Done
-            </button>
-          </div>
-        </Modal>
-      )}
-
-      {/* Reset password */}
+      {/* Set / reveal password — two states inside the same modal:
+          1) typing: admin types the new password, clicks Save.
+          2) saved:  Auth is updated, the same password stays on screen
+             with a Copy button so the admin can send it to the worker. */}
       {resetFor && (
-        <Modal onClose={() => { setResetFor(null); setNewPw(""); }}>
-          <div className="text-lg font-bold mb-2">Reset password — {resetFor.full_name}</div>
+        <Modal onClose={closeResetModal}>
+          <div className="text-lg font-bold text-brand-ink mb-1">
+            {resetSaved ? "Password set" : "Set password"} — {resetFor.full_name}
+          </div>
           <div className="text-sm text-gray-600 mb-4">
-            Enter a new password. Share it with the employee.
+            {resetFor.username && (
+              <>Login <code className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">{resetFor.username}</code> · </>
+            )}
+            {resetSaved
+              ? "Live. Copy and share with the employee."
+              : "Type a new password. It stays visible so you can copy and share it."}
           </div>
-          <input autoFocus type="text" value={newPw}
-            onChange={(e) => setNewPw(e.target.value)}
-            placeholder="new password (min 6 chars)"
-            className="w-full border rounded-lg px-3 py-2 mb-4 focus:outline-none focus:ring-2 focus:ring-brand-blue" />
-          <div className="flex justify-end gap-2">
-            <button onClick={() => { setResetFor(null); setNewPw(""); }}
-              className="px-4 py-2 rounded-lg border">Cancel</button>
-            <button onClick={doReset} disabled={resetting || newPw.length < 6}
-              className="px-4 py-2 rounded-lg bg-brand-ink text-white font-bold disabled:opacity-50">
-              {resetting ? "Saving…" : "Reset password"}
-            </button>
-          </div>
+
+          {!resetSaved ? (
+            <>
+              <input autoFocus type="text" value={newPw}
+                onChange={(e) => setNewPw(e.target.value)}
+                placeholder="new password (min 6 chars)"
+                className="w-full border rounded-lg px-4 py-3 mb-4 font-mono text-base focus:outline-none focus:ring-2 focus:ring-brand-blue" />
+              <div className="flex justify-end gap-2">
+                <button onClick={closeResetModal}
+                  className="px-4 py-2 rounded-lg border">Cancel</button>
+                <button onClick={doReset} disabled={resetting || newPw.length < 6}
+                  className="px-4 py-2 rounded-lg bg-brand-ink text-white font-bold disabled:opacity-50">
+                  {resetting ? "Saving…" : "Save"}
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="bg-brand-blueSoft/70 border border-brand-blue/30 rounded-xl p-4 mb-4">
+                <div className="text-[10px] uppercase tracking-wider font-semibold text-brand-blueDark mb-2">
+                  Password
+                </div>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 font-mono text-lg font-bold text-brand-ink tracking-wider select-all bg-white rounded-lg px-3 py-2 border border-brand-blue/20 break-all">
+                    {newPw}
+                  </code>
+                  <button
+                    onClick={copyPassword}
+                    className={`font-semibold text-sm px-3 py-2 rounded-lg transition flex-shrink-0 ${
+                      copied ? "bg-green-600 text-white" : "bg-brand-ink text-white hover:bg-black"
+                    }`}
+                  >
+                    {copied ? "✓ Copied" : "Copy"}
+                  </button>
+                </div>
+              </div>
+              <div className="flex justify-end">
+                <button onClick={closeResetModal}
+                  className="px-4 py-2 rounded-lg bg-brand-ink text-white font-bold">Done</button>
+              </div>
+            </>
+          )}
         </Modal>
       )}
     </div>

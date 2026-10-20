@@ -1,8 +1,20 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
 import type { WorkEntry } from "../lib/supabase";
+
+const COLLAPSE_KEY = "sunstar-client-metrics-collapsed";
+function readCollapsed(): boolean {
+  try {
+    const v = localStorage.getItem(COLLAPSE_KEY);
+    // Default to COLLAPSED so the entries list owns the screen until the
+    // admin explicitly asks to see the chart.
+    return v === null ? true : v === "1";
+  } catch {
+    return true;
+  }
+}
 
 type Metric = "price" | "hours" | "aed_per_hr";
 
@@ -23,6 +35,10 @@ export function ClientMetricsChart({
   const [metric, setMetric] = useState<Metric>("price");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [picked, setPicked] = useState<string[]>([]);
+  const [collapsed, setCollapsed] = useState<boolean>(() => readCollapsed());
+  useEffect(() => {
+    try { localStorage.setItem(COLLAPSE_KEY, collapsed ? "1" : "0"); } catch {}
+  }, [collapsed]);
 
   // Aggregate per client
   const data = useMemo(() => {
@@ -45,56 +61,72 @@ export function ClientMetricsChart({
   const meta = METRIC_META[metric];
 
   return (
-    <div className="bg-white rounded-2xl p-3 shadow-sm h-full flex flex-col min-h-0">
-      <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+    <div className={`bg-white rounded-2xl shadow-sm flex flex-col min-h-0 ${collapsed ? "" : "h-full p-3"}`}>
+      {/* Header is also the collapse/expand toggle */}
+      <button
+        type="button"
+        onClick={() => setCollapsed((v) => !v)}
+        aria-expanded={!collapsed}
+        className={`flex items-center justify-between gap-2 flex-wrap text-left ${collapsed ? "px-3 py-2" : "mb-2"} hover:bg-slate-50/60 transition rounded-xl`}
+      >
         <div className="flex items-center gap-2 min-w-0">
+          <span className="text-brand-blueDark text-xs font-bold">{collapsed ? "▸" : "▾"}</span>
           <div className="font-bold text-brand-ink text-xs">Client metrics</div>
           <span className="text-[10px] text-gray-500">· {data.length} client{data.length === 1 ? "" : "s"}</span>
         </div>
-        <button
-          onClick={() => setPickerOpen(true)}
-          className="text-[10px] bg-brand-blueSoft border border-brand-blue text-brand-ink font-semibold px-2 py-0.5 rounded-full"
-        >
-          Compare →
-        </button>
-      </div>
+        <span className="text-[10px] text-gray-500">
+          {collapsed ? "Click to expand" : "Click to collapse"}
+        </span>
+      </button>
 
-      {/* Segmented metric toggle */}
-      <div className="inline-flex rounded-full border border-gray-200 bg-gray-50 p-0.5 mb-2 self-start">
-        {(Object.keys(METRIC_META) as Metric[]).map((m) => {
-          const active = metric === m;
-          return (
+      {!collapsed && (
+        <>
+          <div className="flex items-center justify-between gap-2 mb-2">
+            {/* Segmented metric toggle */}
+            <div className="inline-flex rounded-full border border-gray-200 bg-gray-50 p-0.5">
+              {(Object.keys(METRIC_META) as Metric[]).map((m) => {
+                const active = metric === m;
+                return (
+                  <button
+                    key={m}
+                    onClick={() => setMetric(m)}
+                    className={`text-[10px] font-semibold px-2.5 py-0.5 rounded-full transition ${
+                      active ? "text-white shadow-sm" : "text-gray-600 hover:text-brand-ink"
+                    }`}
+                    style={active ? { background: METRIC_META[m].color } : undefined}
+                  >
+                    {METRIC_META[m].label}
+                  </button>
+                );
+              })}
+            </div>
             <button
-              key={m}
-              onClick={() => setMetric(m)}
-              className={`text-[10px] font-semibold px-2.5 py-0.5 rounded-full transition ${
-                active ? "text-white shadow-sm" : "text-gray-600 hover:text-brand-ink"
-              }`}
-              style={active ? { background: METRIC_META[m].color } : undefined}
+              onClick={() => setPickerOpen(true)}
+              className="text-[10px] bg-brand-blueSoft border border-brand-blue text-brand-ink font-semibold px-2 py-0.5 rounded-full"
             >
-              {METRIC_META[m].label}
+              Compare →
             </button>
-          );
-        })}
-      </div>
-
-      <div className="flex-1 min-h-0" style={{ width: "100%", minHeight: 140 }}>
-        {data.length === 0 ? (
-          <div className="h-full flex items-center justify-center text-sm text-gray-400 border-2 border-dashed rounded-xl">
-            No finalized entries in this view
           </div>
-        ) : (
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={data} margin={{ top: 8, right: 12, left: 0, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-              <XAxis dataKey="client" tick={{ fontSize: 11 }} angle={-20} textAnchor="end" height={50} />
-              <YAxis tick={{ fontSize: 11 }} />
-              <Tooltip formatter={(v: any) => meta.fmt(Number(v))} />
-              <Bar dataKey={metric} name={meta.label} fill={meta.color} radius={[6, 6, 0, 0]} isAnimationActive={false} />
-            </BarChart>
-          </ResponsiveContainer>
-        )}
-      </div>
+
+          <div className="flex-1 min-h-0" style={{ width: "100%", minHeight: 140 }}>
+            {data.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-sm text-gray-400 border-2 border-dashed rounded-xl">
+                No finalized entries in this view
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={data} margin={{ top: 8, right: 12, left: 0, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis dataKey="client" tick={{ fontSize: 11 }} angle={-20} textAnchor="end" height={50} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <Tooltip formatter={(v: any) => meta.fmt(Number(v))} />
+                  <Bar dataKey={metric} name={meta.label} fill={meta.color} radius={[6, 6, 0, 0]} isAnimationActive={false} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </>
+      )}
 
       {pickerOpen && (
         <ClientPicker
