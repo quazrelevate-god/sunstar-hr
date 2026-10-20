@@ -8,6 +8,7 @@ type Emp = {
   id: string;
   full_name: string;
   employee_code: string;
+  username: string | null;
   role: "employee" | "admin";
   active: boolean;
   auth_user_id: string | null;
@@ -190,6 +191,7 @@ export default function AdminEmployees() {
               <tr>
                 <th className="px-4 py-3 text-left">Full Name</th>
                 <th className="px-4 py-3 text-left">Code</th>
+                <th className="px-4 py-3 text-left">Username</th>
                 <th className="px-4 py-3 text-left">Role</th>
                 <th className="px-4 py-3 text-left">Status</th>
                 <th className="px-4 py-3 text-left">Created</th>
@@ -198,15 +200,22 @@ export default function AdminEmployees() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={6} className="p-6 text-center text-gray-500">Loading…</td></tr>
+                <tr><td colSpan={7} className="p-6 text-center text-gray-500">Loading…</td></tr>
               ) : rows.length === 0 ? (
-                <tr><td colSpan={6} className="p-6 text-center text-gray-500">No employees yet.</td></tr>
+                <tr><td colSpan={7} className="p-6 text-center text-gray-500">No employees yet.</td></tr>
               ) : rows.map((r) => (
                 <tr key={r.id} className="border-t hover:bg-brand-blueSoft/50">
                   <td className="px-4 py-3 font-medium">{r.full_name}
                     {r.id === me?.id && <span className="ml-2 text-xs bg-gray-100 rounded px-2 py-0.5">you</span>}
                   </td>
                   <td className="px-4 py-3 text-gray-600">{r.employee_code}</td>
+                  <td className="px-4 py-3">
+                    {r.username ? (
+                      <code className="font-mono text-xs bg-slate-100 text-brand-ink px-2 py-1 rounded">{r.username}</code>
+                    ) : (
+                      <span className="text-xs text-gray-400">—</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3">
                     <span className={`text-xs px-2 py-1 rounded-full font-medium ${
                       r.role === "admin" ? "bg-brand-ink text-white" : "bg-brand-blue text-white"
