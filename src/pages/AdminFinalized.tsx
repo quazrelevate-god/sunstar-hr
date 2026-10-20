@@ -175,6 +175,18 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Insights column collapse — hides the whole middle column (Company Ratio
+  // + Client Metrics chart) so the entries table claims the extra width.
+  // Default = collapsed (table-first). Persisted per browser.
+  const INSIGHTS_KEY = "sunstar-insights-collapsed";
+  const [insightsCollapsed, setInsightsCollapsed] = useState<boolean>(() => {
+    try { const v = localStorage.getItem(INSIGHTS_KEY); return v === null ? true : v === "1"; }
+    catch { return true; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(INSIGHTS_KEY, insightsCollapsed ? "1" : "0"); } catch {}
+  }, [insightsCollapsed]);
+
   // Free-text search layered on top of the saved-view conditions.
   // Case-insensitive substring match across the admin-visible string columns.
   const [search, setSearch] = useState("");
@@ -337,12 +349,33 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
       {/* Metrics summary strip — full width across the top */}
       <MetricCards m={metrics} />
 
-      {/* THREE-column grid below: [ Views sidebar | Charts column | Table ].
-          Charts column scrolls internally so the table always claims the right
-          side at its full table-friendly width. */}
-      <div className="grid gap-4 xl:flex-1 xl:min-h-0 grid-cols-1 xl:grid-cols-[200px_360px_minmax(0,1fr)]">
+      {/* Grid below the metrics strip. When insights are collapsed the middle
+          column disappears entirely so the table reclaims the full width. */}
+      <div className={`grid gap-4 xl:flex-1 xl:min-h-0 grid-cols-1 ${
+        insightsCollapsed
+          ? "xl:grid-cols-[200px_minmax(0,1fr)]"
+          : "xl:grid-cols-[200px_360px_minmax(0,1fr)]"
+      }`}>
         {/* LEFT: Views sidebar (scrolls internally if long) */}
         <aside className="bg-white rounded-2xl shadow-sm p-3 overflow-y-auto">
+          {/* Insights column toggle — sits above the Views label */}
+          <button
+            type="button"
+            onClick={() => setInsightsCollapsed((v) => !v)}
+            aria-expanded={!insightsCollapsed}
+            className={`w-full flex items-center justify-between gap-2 px-3 py-2 mb-2 rounded-lg border text-xs font-semibold transition ${
+              insightsCollapsed
+                ? "bg-white border-slate-200 text-brand-ink hover:border-brand-blue hover:text-brand-blueDark"
+                : "bg-brand-blueSoft border-brand-blue/40 text-brand-blueDark"
+            }`}
+            title={insightsCollapsed ? "Show the Company Ratio and Client Metrics panels" : "Hide the insights column to give the table more space"}
+          >
+            <span className="flex items-center gap-1.5">
+              <span>📊</span>
+              <span>{insightsCollapsed ? "Show insights" : "Hide insights"}</span>
+            </span>
+            <span className="text-[10px] text-gray-400">{insightsCollapsed ? "▸" : "▾"}</span>
+          </button>
           <div className="text-xs font-bold text-gray-500 uppercase tracking-wide px-2 mb-2">Views</div>
           <SidebarItem
             label="All entries"
@@ -370,15 +403,19 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
           </div>
         </aside>
 
-        {/* MIDDLE: Company ratio + client metrics chart, stacked. Independent scroll. */}
-        <section className="overflow-y-auto min-h-0 space-y-4 pr-1">
-          <CompanyRatioPanel rows={rows} />
-          <ClientMetricsChart
-            rows={rows}
-            allClients={allClients}
-            onCompareClients={applyClientComparison}
-          />
-        </section>
+        {/* MIDDLE: Company ratio + client metrics chart, stacked. Independent scroll.
+            Hidden entirely when insights are collapsed — the parent grid also drops
+            its middle track so the table reclaims the width. */}
+        {!insightsCollapsed && (
+          <section className="overflow-y-auto min-h-0 space-y-4 pr-1">
+            <CompanyRatioPanel rows={rows} />
+            <ClientMetricsChart
+              rows={rows}
+              allClients={allClients}
+              onCompareClients={applyClientComparison}
+            />
+          </section>
+        )}
 
         {/* RIGHT: toolbar + full-width entries table (independent scroll) */}
         <section className="flex flex-col min-h-0 min-w-0 gap-4">
@@ -679,7 +716,7 @@ function MetricCards({ m }: { m: { hours: number; revenue: number; perHour: numb
   return (
     <div className="rounded-xl bg-white border border-slate-200/70 shadow-sm px-4 py-2.5 flex flex-wrap items-center gap-x-8 gap-y-2">
       <MetricInline label="Entries" value={m.count.toLocaleString()} />
-      <MetricInline label="Total Hours" value={m.hours.toFixed(0)} />
+      <MetricInline label="Total Hours" value={Math.round(m.hours).toLocaleString()} />
       <MetricInline label="Revenue" value={`AED ${m.revenue.toLocaleString()}`} accent />
       <MetricInline label="Avg AED/hr" value={m.perHour.toFixed(2)} accent />
     </div>
