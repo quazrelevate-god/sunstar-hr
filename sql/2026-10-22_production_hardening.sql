@@ -53,12 +53,37 @@ $$;
 revoke execute on function public.sunstar_is_admin() from public, anon;
 grant  execute on function public.sunstar_is_admin() to authenticated;
 
--- ---- 3. C1: member-scoped reads (was: any authenticated user) ----
+-- ---- 3. C1 + price visibility: member-scoped reads; employees never see
+--         FINALIZED rows (prices are admin-only; client decision 2026-10-23) ----
 drop policy if exists sunstar_entries_read_all_authed on public.sunstar_work_entries;
 drop policy if exists sunstar_entries_read_members    on public.sunstar_work_entries;
 create policy sunstar_entries_read_members on public.sunstar_work_entries
   for select to authenticated
-  using (public.sunstar_member_id() is not null);
+  using (
+    public.sunstar_is_admin()
+    or (public.sunstar_member_id() is not null and state <> 'FINALIZED')
+  );
+
+-- Duplicate-warning helper: the morning form warns when the same villa +
+-- client + date already exists IN ANY STATE. Employees can no longer read
+-- finalized rows, so this SECURITY DEFINER function answers the question
+-- without exposing prices (returns state + hours only, member-gated).
+create or replace function public.sunstar_dup_check(p_villa text, p_client text, p_start date)
+returns table (id uuid, state text, hours numeric)
+language sql stable security definer
+set search_path = public
+as $$
+  select e.id, e.state, e.hours
+  from public.sunstar_work_entries e
+  where public.sunstar_member_id() is not null
+    and lower(btrim(e.villa))  = lower(btrim(p_villa))
+    and lower(btrim(e.client)) = lower(btrim(p_client))
+    and e.start_date = p_start
+  order by e.created_at desc
+  limit 3;
+$$;
+revoke execute on function public.sunstar_dup_check(text, text, date) from public, anon;
+grant  execute on function public.sunstar_dup_check(text, text, date) to authenticated;
 
 drop policy if exists sunstar_emp_read         on public.sunstar_employees;
 drop policy if exists sunstar_emp_read_members on public.sunstar_employees;

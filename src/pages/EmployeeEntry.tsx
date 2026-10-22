@@ -566,16 +566,31 @@ function NewEntryTab({
       // villa + client + start_date in ANY state. Prevents the common "manager
       // re-types the same job the next morning without realising it's already
       // logged" mistake seen in production. User can still confirm to proceed.
+      // Uses a server function because employees can't read FINALIZED rows
+      // (prices are admin-only) — the function answers state+hours only.
       const villa = form.villa.trim();
       const client = form.client.trim();
       const startDate = form.start_date || todayDubai();
-      const { data: dups, error: dupErr } = await supabase
-        .from("sunstar_work_entries")
-        .select("id, state, hours, created_at")
-        .ilike("villa", escapeLike(villa))
-        .ilike("client", escapeLike(client))
-        .eq("start_date", startDate)
-        .limit(3);
+      let dups: { id: string; state: string; hours: number | null }[] | null = null;
+      let dupErr: { message: string } | null = null;
+      const rpc = await supabase.rpc("sunstar_dup_check", {
+        p_villa: villa, p_client: client, p_start: startDate,
+      });
+      if (!rpc.error) {
+        dups = rpc.data as typeof dups;
+      } else {
+        // Fallback (older DB without the function): direct query — sees only
+        // the rows this user may read, which still catches queued duplicates.
+        const direct = await supabase
+          .from("sunstar_work_entries")
+          .select("id, state, hours, created_at")
+          .ilike("villa", escapeLike(villa))
+          .ilike("client", escapeLike(client))
+          .eq("start_date", startDate)
+          .limit(3);
+        dups = direct.data as typeof dups;
+        dupErr = direct.error;
+      }
       if (dupErr) {
         // Non-blocking: if the check fails for any reason, proceed with insert.
         // The DB will still take the row, and the admin can clean up if needed.
