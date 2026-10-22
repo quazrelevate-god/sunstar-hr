@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import * as XLSX from "xlsx";
-import { supabase, POINT_FIELDS } from "../lib/supabase";
+import { supabase } from "../lib/supabase";
 import type { WorkEntry, SavedFilter, Condition, FilterCol } from "../lib/supabase";
 import { passesConditions, rateTone, rateToneClasses } from "../lib/rate";
 import { fetchAll, todayDubai } from "../lib/data";
+import { downloadWorkbook, buildCsv } from "../lib/exportSheet";
 import { AddConditionPopover, FilterChip } from "../components/FilterBuilder";
 import { ClientMetricsChart } from "../components/ClientMetricsChart";
 import { CompanyRatioPanel } from "../components/CompanyRatioPanel";
@@ -342,22 +342,17 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
     flash(`Filtering to ${clientList.length} client${clientList.length === 1 ? "" : "s"}`, "info");
   }
 
+  function exportBaseName() {
+    const view = active.kind === "saved"
+      ? active.filter.name.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").slice(0, 40)
+      : "";
+    return `sunstar_${view ? `${view}_` : ""}${todayDubai()}`;
+  }
   function exportCSV() {
-    const { headers, rows: outRows } = buildExportData(rows);
-    const lines = [headers.join(",")];
-    outRows.forEach((r) => lines.push(r.map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(",")));
-    downloadBlob(lines.join("\n"), "text/csv", "sunstar_export.csv");
+    downloadBlob(buildCsv(rows), "text/csv", `${exportBaseName()}.csv`);
   }
   function exportXLSX() {
-    const { headers, rows: outRows } = buildExportData(rows);
-    const ws = XLSX.utils.aoa_to_sheet([headers, ...outRows]);
-    // Reasonable column widths
-    ws["!cols"] = headers.map((h) => ({ wch: Math.min(24, Math.max(8, h.length + 2)) }));
-    const wb = XLSX.utils.book_new();
-    const sheetName =
-      active.kind === "saved" ? active.filter.name.slice(0, 31) : "Sunstar";
-    XLSX.utils.book_append_sheet(wb, ws, sheetName);
-    XLSX.writeFile(wb, `sunstar_${todayDubai()}.xlsx`);
+    downloadWorkbook(rows, `${exportBaseName()}.xlsx`);
   }
 
   return (
@@ -794,51 +789,6 @@ function ConfirmModal({
       </div>
     </div>
   );
-}
-
-/* Export helpers */
-/* Export schema — single source of truth is the header row the client shared
- * (image 5.png). State / Apartment / GI-Circular Box / GI-Offset / Final Fix
- * Socket stay excluded. Final Fix Switch is relabelled to "Wiring accessories"
- * (lowercase 'a', per the image). A trailing blank "remark" column is written
- * so the admin can jot notes directly in Excel after exporting.
- */
-const EXPORT_EXCLUDE_POINT_KEYS = new Set(["gi_circular_box", "gi_offset", "final_fix_socket"]);
-const EXPORT_LABEL_OVERRIDES: Record<string, string> = {
-  final_fix_switch: "Wiring accessories",
-};
-
-function buildExportData(rows: WorkEntry[]) {
-  const exportPointFields = POINT_FIELDS.filter(
-    (p) => !EXPORT_EXCLUDE_POINT_KEYS.has(p.key as string),
-  );
-  const headers = [
-    "S.No","Cluster","Phase","Villa","Bedroom","Description","Floor",
-    "Start Date","End Date","Status","Client","Employee",
-    "Total Manpower","Check-in","Check-out","Break Start","Break End",
-    "Actual Hours","Total Price (AED)","AED per Hour",
-    ...exportPointFields.map((p) => EXPORT_LABEL_OVERRIDES[p.key as string] ?? p.label),
-    "remark",
-  ];
-  const out = rows.map((r, i) => {
-    const base: (string | number)[] = [
-      i + 1, r.cluster, r.phase, r.villa,
-      r.bedroom_type, r.description, r.floor_type,
-      r.start_date ?? "", r.end_date ?? "", r.status ?? "", r.client ?? "", r.employee_name ?? "",
-      r.total_manpower ?? "",
-      (r.check_in_time ?? "").toString().slice(0,5),
-      (r.check_out_time ?? "").toString().slice(0,5),
-      (r.break_start_time ?? "").toString().slice(0,5),
-      (r.break_end_time ?? "").toString().slice(0,5),
-      r.hours ?? "",
-      r.total_price != null ? Number(r.total_price) : "",
-      r.per_hour_ratio != null ? Number(r.per_hour_ratio) : "",
-    ];
-    exportPointFields.forEach((p) => base.push(((r as any)[p.key] ?? 0) as number));
-    base.push(""); // blank 'remark' cell — admin writes in Excel after export
-    return base;
-  });
-  return { headers, rows: out };
 }
 
 function downloadBlob(content: string, mime: string, filename: string) {
