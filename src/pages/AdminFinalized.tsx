@@ -10,6 +10,7 @@ import { CompanyRatioPanel } from "../components/CompanyRatioPanel";
 import { Toast } from "../components/Toast";
 import type { ToastKind } from "../components/Toast";
 import { FullEditModal } from "../components/FullEditModal";
+import { InvoiceModal } from "../components/InvoiceModal";
 
 const PAGE_SIZE = 50;
 const TEXT_COLS: FilterCol[] = [
@@ -76,6 +77,7 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
   const [askSave, setAskSave] = useState(false);
   const [page, setPage] = useState(0);
   const [toast, setToast] = useState<{ msg: string; kind: ToastKind } | null>(null);
+  const [invoiceOpen, setInvoiceOpen] = useState(false);
 
   // Row-level actions on the finalized entries table
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
@@ -504,6 +506,11 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
                   className="border border-gray-400 text-gray-600 hover:bg-gray-100 font-semibold px-3 py-2 rounded-lg text-sm transition">
                   CSV
                 </button>
+                <button onClick={() => setInvoiceOpen(true)} disabled={rows.length === 0}
+                  title="Preview, edit and download an invoice for the entries in this view"
+                  className="border border-brand-blue text-brand-blueDark hover:bg-brand-blue hover:text-white font-semibold px-3 py-2 rounded-lg text-sm transition disabled:opacity-40 disabled:pointer-events-none">
+                  Invoice
+                </button>
               </div>
             </div>
 
@@ -646,6 +653,10 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
           </div>
         </section>
       </div>
+
+      {invoiceOpen && (
+        <InvoiceModal rows={rows} onClose={() => setInvoiceOpen(false)} flash={flash} />
+      )}
 
       <AddConditionPopover
         open={adding}
