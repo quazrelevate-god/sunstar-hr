@@ -187,21 +187,16 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
     try { localStorage.setItem(INSIGHTS_KEY, insightsCollapsed ? "1" : "0"); } catch {}
   }, [insightsCollapsed]);
 
-  // Free-text search layered on top of the saved-view conditions.
-  // Case-insensitive substring match across the admin-visible string columns.
+  // Search is a BOOST, not a filter: whatever the admin types is matched
+  // against the client name (case-insensitive, prefix match preferred) and
+  // the matching rows are hoisted to the top of the list. Non-matching rows
+  // keep their place below, so the full dataset stays visible and totals
+  // don't change as the admin types.
   const [search, setSearch] = useState("");
   const filteredRows = useMemo(() => {
-    const base = conds.length === 0 ? finalized : finalized.filter((r) => passesConditions(r, conds));
-    const q = search.trim().toLowerCase();
-    if (!q) return base;
-    return base.filter((r) => {
-      const hay = [
-        r.villa, r.cluster, r.phase, r.client, r.description,
-        r.employee_name, r.apartment_number, r.bedroom_type, r.floor_type, r.status,
-      ].map((v) => (v ?? "").toString().toLowerCase()).join(" | ");
-      return hay.includes(q);
-    });
-  }, [finalized, conds, search]);
+    if (conds.length === 0) return finalized;
+    return finalized.filter((r) => passesConditions(r, conds));
+  }, [finalized, conds]);
 
   // Click-to-sort state. Click cycles none → asc → desc → none. Click on a
   // different column snaps the direction back to asc. Metrics still read from
@@ -214,7 +209,7 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
     if (sortDir === "desc") { setSortCol(null); setSortDir(null); return; }
     setSortDir("asc");
   }
-  const rows = useMemo(() => {
+  const sortedRows = useMemo(() => {
     if (!sortCol || !sortDir) return filteredRows;
     const kind = SORT_KIND[sortCol] ?? "text";
     const copy = [...filteredRows];
@@ -236,6 +231,31 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
     });
     return copy;
   }, [filteredRows, sortCol, sortDir]);
+
+  /**
+   * Final row order the table renders.
+   * If search is empty: just the sorted rows.
+   * Otherwise: client-name matches are hoisted to the top. Within the matched
+   * group, "starts with" ranks higher than "contains anywhere", so typing
+   * "GIN" surfaces GINCO rows first and anything that merely contains "gin"
+   * right after. Rows that don't match the search stay underneath in their
+   * current sort order — nothing is hidden.
+   */
+  const rows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return sortedRows;
+    const prefix: WorkEntry[] = [];
+    const contains: WorkEntry[] = [];
+    const rest: WorkEntry[] = [];
+    for (const r of sortedRows) {
+      const client = (r.client ?? "").toString().toLowerCase();
+      if (!client) { rest.push(r); continue; }
+      if (client.startsWith(q)) prefix.push(r);
+      else if (client.includes(q)) contains.push(r);
+      else rest.push(r);
+    }
+    return [...prefix, ...contains, ...rest];
+  }, [sortedRows, search]);
 
   const metrics = useMemo(() => {
     const hours = filteredRows.reduce((s, r) => s + Number(r.hours || 0), 0);
@@ -442,7 +462,7 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
                   type="search"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search villa, client, description…"
+                  placeholder="Type a client name — matches jump to top"
                   className="w-full border border-slate-200 rounded-lg pl-8 pr-8 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:border-brand-blue"
                 />
                 {search && (
