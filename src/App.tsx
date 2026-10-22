@@ -1,9 +1,13 @@
+import { lazy, Suspense } from "react";
 import type { JSX } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./lib/auth";
 import Login from "./pages/Login";
-import EmployeeEntry from "./pages/EmployeeEntry";
-import AdminDashboard from "./pages/AdminDashboard";
+
+// Route-level code splitting: the employee tablet never downloads the admin
+// bundle (charts, Excel export, invoicing) and vice versa.
+const EmployeeEntry = lazy(() => import("./pages/EmployeeEntry"));
+const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
 
 function Protected({ role, children }: { role: "employee" | "admin"; children: JSX.Element }) {
   const { loading, session, employee, signOut } = useAuth();
@@ -23,6 +27,20 @@ function Protected({ role, children }: { role: "employee" | "admin"; children: J
       </div>
     );
   }
+  if (!employee.active) {
+    return (
+      <div className="p-10 text-center space-y-4">
+        <div>This account has been deactivated.</div>
+        <div className="text-sm text-gray-500">Please contact your Sunstar admin.</div>
+        <button
+          onClick={signOut}
+          className="bg-brand-ink hover:bg-black text-white px-5 py-2.5 rounded-lg text-sm font-medium"
+        >
+          Sign out
+        </button>
+      </div>
+    );
+  }
   if (role === "admin" && employee.role !== "admin") return <Navigate to="/employee" replace />;
   if (role === "employee" && employee.role === "admin") return <Navigate to="/admin" replace />;
   return children;
@@ -32,6 +50,7 @@ export default function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
+        <Suspense fallback={<div className="p-10 text-center">Loading…</div>}>
         <Routes>
           <Route path="/" element={<Navigate to="/login" replace />} />
           <Route path="/login" element={<Login />} />
@@ -56,6 +75,7 @@ export default function App() {
           />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        </Suspense>
       </BrowserRouter>
     </AuthProvider>
   );

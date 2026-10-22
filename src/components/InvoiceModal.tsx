@@ -183,11 +183,18 @@ export function InvoiceModal({ rows, onClose, flash }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded, entryClient]);
 
+  const dirtyRef = useRef(false);
+  dirtyRef.current = dirty;
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") requestClose(); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (dirtyRef.current && !confirm("Close the invoice preview? Your edits will be lost.")) return;
+      onClose();
+    };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function requestClose() {
     if (dirty && !confirm("Close the invoice preview? Your edits will be lost.")) return;
@@ -343,7 +350,7 @@ export function InvoiceModal({ rows, onClose, flash }: {
                         <span className="group-hover:invisible">{i + 1}</span>
                         <button type="button" title="Remove line"
                           onClick={() => set("lines", inv.lines.filter((x) => x.id !== l.id))}
-                          className="absolute inset-0 hidden group-hover:flex items-center justify-center text-red-600 font-bold text-base">×</button>
+                          className="inv-del absolute inset-0 hidden group-hover:flex items-center justify-center text-red-600 font-bold text-base">×</button>
                       </td>
                       <td className={cell}><Area value={l.desc} onChange={(v) => setLine(l.id, "desc", v)} placeholder="Description" /></td>
                       <td className={cell}><Area value={l.qty} onChange={(v) => setLine(l.id, "qty", v)} className="text-right" /></td>

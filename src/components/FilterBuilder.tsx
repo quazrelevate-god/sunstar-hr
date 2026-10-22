@@ -117,9 +117,12 @@ export function AddConditionPopover({
       if (!v1) return;
       cond = { col, op, value: v1 };
     } else if (op === "between") {
+      // At least one bound is required; a blank bound means "no limit on that
+      // side" (it used to silently become 0 and empty the whole table).
+      if (!v1 && !v2) return;
       cond = kind === "date"
-        ? { col, op, from: v1, to: v2 }
-        : { col, op, from: Number(v1), to: Number(v2) };
+        ? { col, op, from: v1 || null, to: v2 || null }
+        : { col, op, from: v1 ? Number(v1) : null, to: v2 ? Number(v2) : null };
     } else if (op === "gt" || op === "gte" || op === "lt" || op === "lte") {
       if (!v1) return;
       cond = { col, op, value: kind === "number" ? Number(v1) : v1 };

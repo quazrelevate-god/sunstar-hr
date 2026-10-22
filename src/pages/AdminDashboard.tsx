@@ -20,9 +20,11 @@ export default function AdminDashboard() {
   const [rows, setRows] = useState<WorkEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<{ msg: string; kind: ToastKind } | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const flash = (msg: string, kind: ToastKind = "info") => {
     setToast({ msg, kind });
-    setTimeout(() => setToast(null), 3200);
+    clearTimeout(toastTimer.current); // an older toast's timer must not dismiss a newer one
+    toastTimer.current = setTimeout(() => setToast(null), 3200);
   };
 
   /**
@@ -30,8 +32,15 @@ export default function AdminDashboard() {
    * so analytics and exports never silently drop older rows.
    * Only the first load (or the Refresh button) shows the spinner.
    */
+  /** While a full load() snapshot is in flight, realtime events are buffered
+   *  and replayed after it lands — otherwise a slow multi-page load could
+   *  resolve LAST and visually revert rows that realtime already updated. */
+  const loadInFlight = useRef(false);
+  const buffered = useRef<any[]>([]);
+
   async function load(showSpinner = false) {
     if (showSpinner) setLoading(true);
+    loadInFlight.current = true;
     const { data, error } = await fetchAll<WorkEntry>(() =>
       supabase
         .from("sunstar_work_entries")
@@ -41,11 +50,16 @@ export default function AdminDashboard() {
     if (error) flash(error.message, "error");
     else setRows(data);
     setLoading(false);
+    loadInFlight.current = false;
+    const replay = buffered.current;
+    buffered.current = [];
+    for (const p of replay) applyChange(p);
   }
 
   /** Apply one realtime change instead of reloading every row. */
   const seq = useRef<Record<string, number>>({});
   async function applyChange(p: any) {
+    if (loadInFlight.current) { buffered.current.push(p); return; }
     const id: string | undefined = p.new?.id ?? p.old?.id;
     if (!id) return load();
     const mySeq = (seq.current[id] = (seq.current[id] ?? 0) + 1);
@@ -88,6 +102,20 @@ export default function AdminDashboard() {
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("online", onOnline);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Admin sessions expose prices and can edit everything, and site machines
+  // are shared — sign out automatically after 60 minutes without input.
+  // (Employee tablets intentionally keep long sessions for the day shift.)
+  useEffect(() => {
+    const IDLE_MS = 60 * 60 * 1000;
+    let t: ReturnType<typeof setTimeout>;
+    const arm = () => { clearTimeout(t); t = setTimeout(() => { signOut(); }, IDLE_MS); };
+    const evs: (keyof WindowEventMap)[] = ["pointerdown", "keydown"];
+    evs.forEach((e) => window.addEventListener(e, arm));
+    arm();
+    return () => { clearTimeout(t); evs.forEach((e) => window.removeEventListener(e, arm)); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -139,7 +167,7 @@ export default function AdminDashboard() {
         {tab === "queue" && (
           <QueuePanel rows={queue} loading={loading} reload={load} flash={flash} />
         )}
-        {tab === "finalized" && <AdminFinalized finalized={finalized} />}
+        {tab === "finalized" && <AdminFinalized finalized={finalized} allRows={rows} />}
       </main>
     </div>
   );
@@ -394,11 +422,16 @@ function PriceModal({
     if (manpower && typeof mpHours === "number" && mpHours > 0) {
       update.hours = mpHours;
     }
-    const { error, count } = await supabase
+    let q = supabase
       .from("sunstar_work_entries")
       .update(update, { count: "exact" })
       .eq("id", row.id!)
       .eq("state", "AWAITING_PRICE");
+    // Whole-row token: if ANYTHING changed since this modal opened (e.g. a
+    // FullEdit corrected the hours this pricing is based on), conflict instead
+    // of silently finalizing against stale numbers.
+    if (row.updated_at) q = q.eq("updated_at", row.updated_at);
+    const { error, count } = await q;
     setSaving(false);
     if (error) return flash(error.message, "error");
     if (count === 0) {
@@ -409,10 +442,20 @@ function PriceModal({
     onDone();
   }
 
+  // Anything typed? Closing then needs a confirm so a mis-click on the
+  // backdrop can't silently discard the price being prepared.
+  const dirty = manpower
+    ? mpRate !== "" || mpHours !== (row.hours ?? "")
+    : mode === "quantity" ? qty !== "" || qtyPrice !== "" : price !== "";
+  function requestClose() {
+    if (dirty && !confirm("Discard the price you were entering?")) return;
+    onClose();
+  }
+
   const inputCx = "w-full border rounded-xl px-4 py-3 font-semibold focus:outline-none focus:ring-4 focus:ring-brand-blue/30 focus:border-brand-blue";
 
   return (
-    <Modal onClose={onClose}>
+    <Modal onClose={requestClose}>
       <div className="text-lg font-bold text-brand-ink mb-1">Set Price — Villa {row.villa}</div>
       <div className="text-xs text-gray-500 mb-4">
         {row.description} · {row.client}{row.hours != null ? ` · Actual ${row.hours}h` : ""}
@@ -509,7 +552,7 @@ function PriceModal({
         <b>AED {perHour}/hr</b>
       </div>
       <div className="flex justify-end gap-2">
-        <button onClick={onClose} className="px-4 py-2 rounded-lg border">Cancel</button>
+        <button onClick={requestClose} className="px-4 py-2 rounded-lg border">Cancel</button>
         <button onClick={submit} disabled={saving}
           className="px-4 py-2 rounded-lg bg-brand-ink text-white font-bold disabled:opacity-50">
           {saving ? "Saving…" : "Finalize"}

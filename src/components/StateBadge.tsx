@@ -18,8 +18,16 @@ const CFG: Record<EntryState, { label: string; cls: string; dot: string }> = {
   },
 };
 
+const UNKNOWN = {
+  label: "Unknown",
+  cls: "bg-gray-50 text-gray-700 border-gray-200",
+  dot: "bg-gray-400",
+};
+
 export function StateBadge({ state }: { state: EntryState }) {
-  const c = CFG[state];
+  // A row with an unexpected state (manual SQL edit, future migration) must
+  // never crash the whole page — fall back to a neutral badge.
+  const c = CFG[state] ?? UNKNOWN;
   return (
     <span
       className={`inline-flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded-full border ${c.cls}`}

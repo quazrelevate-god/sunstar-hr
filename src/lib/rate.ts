@@ -78,9 +78,12 @@ export function passesConditions(row: any, conds: Condition[]): boolean {
           const to = c.to ? toMs(c.to) : Infinity;
           if (!(d >= from && d <= to)) return false;
         } else {
+          // A row with no value can't be "between" anything, and a missing
+          // bound means unbounded on that side (NOT zero).
+          if (v == null || v === "") return false;
           const nv = Number(v);
-          const from = Number(c.from);
-          const to = Number(c.to);
+          const from = c.from != null && c.from !== "" ? Number(c.from) : -Infinity;
+          const to   = c.to   != null && c.to   !== "" ? Number(c.to)   : Infinity;
           if (!(nv >= from && nv <= to)) return false;
         }
         break;

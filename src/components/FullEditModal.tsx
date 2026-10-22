@@ -50,14 +50,14 @@ export function FullEditModal({
 
   function buildPatch(): Record<string, any> {
     const patch: any = {
-      cluster: f.cluster ?? "",
-      phase: f.phase ?? "",
-      villa: f.villa,
-      bedroom_type: f.bedroom_type ?? "",
-      description: f.description,
-      floor_type: f.floor_type ?? "",
-      status: f.status ?? "IN PROGRESS",
-      client: f.client,
+      cluster: (f.cluster ?? "").trim(),
+      phase: (f.phase ?? "").trim(),
+      villa: (f.villa ?? "").trim(),
+      bedroom_type: (f.bedroom_type ?? "").trim(),
+      description: (f.description ?? "").trim(),
+      floor_type: (f.floor_type ?? "").trim(),
+      status: (f.status ?? "IN PROGRESS").trim() || "IN PROGRESS",
+      client: (f.client ?? "").trim(),
       start_date: f.start_date || null,
       end_date: f.end_date || null,
       hours: f.hours != null && f.hours !== ("" as any) ? Number(f.hours) : null,
@@ -67,12 +67,14 @@ export function FullEditModal({
       check_out_time: f.check_out_time || null,
       break_start_time: f.break_start_time || null,
       break_end_time: f.break_end_time || null,
+      // Always included so an admin can CLEAR a wrong price (null) — it used
+      // to be skipped when empty, making a price silently un-removable.
+      total_price: f.total_price != null && f.total_price !== ("" as any) ? Number(f.total_price) : null,
     };
     POINT_FIELDS.forEach((p) => {
       const k = p.key as string;
       patch[k] = (f as any)[k] != null && (f as any)[k] !== "" ? Number((f as any)[k]) : 0;
     });
-    if (f.total_price != null && f.total_price !== ("" as any)) patch.total_price = Number(f.total_price);
     return patch;
   }
 
@@ -107,6 +109,9 @@ export function FullEditModal({
     if (f.hours != null && (f.hours as any) !== "" && Number(f.hours) > cap) {
       return flash(`Actual hours look too high — max ${cap}h for ${f.total_manpower} people`, "error");
     }
+    if (row.state === "FINALIZED" && (f.total_price == null || f.total_price === ("" as any))) {
+      return flash("A finalized entry needs a price — enter one, or delete the entry instead", "error");
+    }
     const warn = timeWarnings(f);
     if (warn.length && !confirm(`${warn.join(". ")}.\n\nSave anyway (for example a night shift)?`)) return;
 
@@ -118,9 +123,17 @@ export function FullEditModal({
       .from("sunstar_work_entries")
       .update(patch, { count: "exact" })
       .eq("id", row.id!);
-    for (const k of Object.keys(patch)) {
-      const orig = (row as any)[k];
-      q = orig == null ? q.is(k, null) : q.eq(k, orig);
+    if (row.updated_at) {
+      // Whole-row token: ANY concurrent change (even to fields this admin
+      // didn't touch) makes the save conflict instead of producing a mix of
+      // two admins' values that neither of them ever saw.
+      q = q.eq("updated_at", row.updated_at);
+    } else {
+      // Fallback (updated_at column not deployed yet): per-changed-field guards.
+      for (const k of Object.keys(patch)) {
+        const orig = (row as any)[k];
+        q = orig == null ? q.is(k, null) : q.eq(k, orig);
+      }
     }
     const { error, count } = await q;
     setSaving(false);
@@ -160,6 +173,11 @@ export function FullEditModal({
               <FE label="Client *"><input value={f.client ?? ""} onChange={(e) => set("client", e.target.value)} className={cx}/></FE>
               <FE label="Status">
                 <select value={f.status ?? "IN PROGRESS"} onChange={(e) => set("status", e.target.value)} className={cx}>
+                  {/* The entry form allows free-text statuses; keep an unknown
+                      current value selectable instead of rendering blank. */}
+                  {f.status && !["DONE", "IN PROGRESS", "PENDING"].includes(f.status) && (
+                    <option value={f.status}>{f.status}</option>
+                  )}
                   <option>DONE</option><option>IN PROGRESS</option><option>PENDING</option>
                 </select>
               </FE>

@@ -4,7 +4,7 @@ import { useAuth } from "../lib/auth";
 import { Logo } from "../components/Logo";
 
 export default function Login() {
-  const { signIn, session, employee } = useAuth();
+  const { signIn, signOut, session, employee, loading } = useAuth();
   const nav = useNavigate();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -104,6 +104,24 @@ export default function Login() {
                   {err === "Invalid login credentials"
                     ? "Username or password is incorrect."
                     : err}
+                </div>
+              )}
+
+              {/* Signed in but no employee profile: without this the page just
+                  sits there silently after a successful sign-in. */}
+              {session && !loading && !employee && !busy && (
+                <div className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 space-y-2">
+                  <div>
+                    Signed in, but no employee profile is linked to this
+                    account. Contact your Sunstar admin.
+                  </div>
+                  <button
+                    type="button"
+                    onClick={signOut}
+                    className="underline font-medium"
+                  >
+                    Sign out and try another account
+                  </button>
                 </div>
               )}
 

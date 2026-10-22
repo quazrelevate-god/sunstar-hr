@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
 import { Toast } from "../components/Toast";
@@ -79,13 +79,16 @@ export default function AdminEmployees() {
 
   useEffect(() => { load(); }, []);
 
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   function flash(msg: string, kind: ToastKind = "info") {
     setToast({ msg, kind });
-    setTimeout(() => setToast(null), 3200);
+    clearTimeout(toastTimer.current); // an older toast's timer must not dismiss a newer one
+    toastTimer.current = setTimeout(() => setToast(null), 3200);
   }
 
   async function submitCreate(e: React.FormEvent) {
     e.preventDefault();
+    if (creating) return; // Enter-key double submit before the re-render lands
     setCreating(true); setErr(null);
     try {
       await call("create", {
@@ -173,9 +176,9 @@ export default function AdminEmployees() {
             </div>}
           </Field>
           <Field label="Password *">
-            <input required type="text" minLength={6} value={fPassword}
+            <input required type="text" minLength={8} value={fPassword}
               onChange={(e) => setFPassword(e.target.value)}
-              placeholder="min 6 chars"
+              placeholder="min 8 chars"
               className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-blue" />
           </Field>
           <Field label="Role">
@@ -309,12 +312,12 @@ export default function AdminEmployees() {
             <>
               <input autoFocus type="text" value={newPw}
                 onChange={(e) => setNewPw(e.target.value)}
-                placeholder="new password (min 6 chars)"
+                placeholder="new password (min 8 chars)"
                 className="w-full border rounded-lg px-4 py-3 mb-4 font-mono text-base focus:outline-none focus:ring-2 focus:ring-brand-blue" />
               <div className="flex justify-end gap-2">
                 <button onClick={closeResetModal}
                   className="px-4 py-2 rounded-lg border">Cancel</button>
-                <button onClick={doReset} disabled={resetting || newPw.length < 6}
+                <button onClick={doReset} disabled={resetting || newPw.length < 8}
                   className="px-4 py-2 rounded-lg bg-brand-ink text-white font-bold disabled:opacity-50">
                   {resetting ? "Saving…" : "Save"}
                 </button>

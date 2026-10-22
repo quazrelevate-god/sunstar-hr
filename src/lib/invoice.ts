@@ -183,11 +183,14 @@ export function buildLines(rows: WorkEntry[]): InvoiceLine[] {
       return { id: newLineId(), desc: g.desc, qty, unit: "", rate: "", amount: amount.toFixed(2) };
     }
     const qty = round2(g.qty);
-    const rate = qty > 0 ? round2(amount / qty) : amount;
+    // qty 0 (e.g. supply rows without hours): leave qty and rate blank for the
+    // admin to fill — printing rate=amount next to qty 0 reads as a math error
+    // on a tax invoice.
     return {
       id: newLineId(), desc: g.desc,
-      qty: String(qty), unit: g.unit,
-      rate: rate.toFixed(2), amount: amount.toFixed(2),
+      qty: qty > 0 ? String(qty) : "", unit: g.unit,
+      rate: qty > 0 ? round2(amount / qty).toFixed(2) : "",
+      amount: amount.toFixed(2),
     };
   });
 }

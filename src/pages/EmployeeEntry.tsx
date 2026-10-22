@@ -78,9 +78,11 @@ export default function EmployeeEntry() {
   const [tab, setTab] = useState<Tab>("queue");
   const [toast, setToast] = useState<{ msg: string; kind: ToastKind } | null>(null);
   const [suggestions, setSuggestions] = useState<SuggestionMap>({});
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const flash = (msg: string, kind: ToastKind = "info") => {
     setToast({ msg, kind });
-    setTimeout(() => setToast(null), 3200);
+    clearTimeout(toastTimer.current); // an older toast's timer must not dismiss a newer one
+    toastTimer.current = setTimeout(() => setToast(null), 3200);
   };
 
   /** Add one row's text values into the autocomplete lists (no refetch). */
@@ -208,7 +210,14 @@ function QueueTab({ flash }: { flash: (m: string, k?: ToastKind) => void }) {
    * Showing it on every refresh used to unmount the open "Fill actuals" forms and
    * wipe whatever the worker had typed.
    */
+  /** While a full load() snapshot is in flight, realtime events are buffered
+   *  and replayed after it lands — otherwise a slow multi-page load could
+   *  resolve LAST and visually revert rows that realtime already updated. */
+  const loadInFlight = useRef(false);
+  const buffered = useRef<any[]>([]);
+
   async function load() {
+    loadInFlight.current = true;
     const { data, error } = await fetchAll<WorkEntry>(() =>
       supabase
         .from("sunstar_work_entries")
@@ -219,11 +228,16 @@ function QueueTab({ flash }: { flash: (m: string, k?: ToastKind) => void }) {
     if (error) flash(error.message, "error");
     else setRows(data);
     setLoading(false);
+    loadInFlight.current = false;
+    const replay = buffered.current;
+    buffered.current = [];
+    for (const p of replay) applyChange(p);
   }
 
   /** Apply one realtime change to the list instead of reloading everything. */
   const seq = useRef<Record<string, number>>({});
   async function applyChange(p: any) {
+    if (loadInFlight.current) { buffered.current.push(p); return; }
     const id: string | undefined = p.new?.id ?? p.old?.id;
     if (!id) return load();
     const mySeq = (seq.current[id] = (seq.current[id] ?? 0) + 1);
@@ -267,11 +281,20 @@ function QueueTab({ flash }: { flash: (m: string, k?: ToastKind) => void }) {
 
   async function del(id: string) {
     if (!confirm("Delete this queued entry? This cannot be undone.")) return;
-    const { error } = await supabase.from("sunstar_work_entries").delete().eq("id", id);
+    // count check: if the row was submitted/finalized meanwhile, RLS filters it
+    // out and nothing is deleted — don't show a false "deleted" toast.
+    const { error, count } = await supabase
+      .from("sunstar_work_entries")
+      .delete({ count: "exact" })
+      .eq("id", id);
     if (error) return flash(error.message, "error");
     clearDraft(employee?.auth_user_id, id);
     if (openId === id) setOpenId(null);
-    flash("Entry deleted", "success");
+    if (count === 0) {
+      flash("This job was already submitted or removed by someone else", "error");
+    } else {
+      flash("Entry deleted", "success");
+    }
     load();
   }
 
@@ -349,14 +372,21 @@ function QueueRow({
   });
   const [saving, setSaving] = useState(false);
 
+  // Only persist a draft after the worker actually TYPED something. The form
+  // initializes check-out/break from the row, so without this flag every
+  // rendered row wrote a "phantom draft" on mount — which then shadowed any
+  // admin-side time corrections after a reload.
+  const touched = useRef(draft != null);
+
   // Save a draft whenever anything is typed.
   useEffect(() => {
+    if (!touched.current) return;
     const anyPoints = Object.values(points).some((v) => v);
     if (hours === "" && !checkOut && !breakStart && !breakEnd && !anyPoints) return;
     writeDraft(uid, row.id!, { hours, checkOut, breakStart, breakEnd, points });
   }, [uid, row.id, hours, checkOut, breakStart, breakEnd, points]);
 
-  const setPt = (k: string, v: number) => setPoints((p) => ({ ...p, [k]: v }));
+  const setPt = (k: string, v: number) => { touched.current = true; setPoints((p) => ({ ...p, [k]: v })); };
 
   async function submit() {
     if (!hours || +hours <= 0) return flash("Enter actual hours (> 0)", "error");
@@ -440,17 +470,21 @@ function QueueRow({
       {open && (
         <div className="border-t bg-brand-blueSoft/40 p-4 md:p-5 space-y-4">
           <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-3">
-            <NumField required label="Actual Hours *" v={hours} on={setHours as any} decimal />
+            <NumField required label="Actual Hours *" v={hours}
+              on={(n) => { touched.current = true; setHours(n); }} decimal />
             <Field label="Check-out">
-              <input type="time" value={checkOut} onChange={(e) => setCheckOut(e.target.value)}
+              <input type="time" value={checkOut}
+                onChange={(e) => { touched.current = true; setCheckOut(e.target.value); }}
                 className="w-full border rounded-lg px-3 py-3 text-base" />
             </Field>
             <Field label="Break start">
-              <input type="time" value={breakStart} onChange={(e) => setBreakStart(e.target.value)}
+              <input type="time" value={breakStart}
+                onChange={(e) => { touched.current = true; setBreakStart(e.target.value); }}
                 className="w-full border rounded-lg px-3 py-3 text-base" />
             </Field>
             <Field label="Break end">
-              <input type="time" value={breakEnd} onChange={(e) => setBreakEnd(e.target.value)}
+              <input type="time" value={breakEnd}
+                onChange={(e) => { touched.current = true; setBreakEnd(e.target.value); }}
                 className="w-full border rounded-lg px-3 py-3 text-base" />
             </Field>
           </div>
@@ -506,6 +540,10 @@ function NewEntryTab({
    *  React's setSaving(true) actually disables the button. */
   const submitting = useRef(false);
 
+  /** ILIKE treats % and _ as wildcards — escape them so a villa named "5%" can't
+   *  over-match (or someone can't probe with patterns). */
+  const escapeLike = (s: string) => s.replace(/[\\%_]/g, (m) => `\\${m}`);
+
   async function submit() {
     if (submitting.current) return;
     if (!form.villa?.trim()) return flash("Villa is required", "error");
@@ -518,71 +556,77 @@ function NewEntryTab({
     const warn = timeWarnings(form);
     if (warn.length && !confirm(`${warn.join(". ")}.\n\nIs this correct (for example a night shift)?`)) return;
 
-    // Duplicate check: warn if there's already an entry for the same
-    // villa + client + start_date in ANY state. Prevents the common "manager
-    // re-types the same job the next morning without realising it's already
-    // logged" mistake seen in production. User can still confirm to proceed.
-    const villa = form.villa.trim();
-    const client = form.client.trim();
-    const startDate = form.start_date || todayDubai();
-    const { data: dups, error: dupErr } = await supabase
-      .from("sunstar_work_entries")
-      .select("id, state, hours, created_at")
-      .ilike("villa", villa)
-      .ilike("client", client)
-      .eq("start_date", startDate)
-      .limit(3);
-    if (dupErr) {
-      // Non-blocking: if the check fails for any reason, proceed with insert.
-      // The DB will still take the row, and the admin can clean up if needed.
-      console.warn("Duplicate check failed:", dupErr.message);
-    } else if (dups && dups.length > 0) {
-      const stateLabel = (s: string) =>
-        s === "AWAITING_ACTUAL" ? "waiting for actual hours"
-        : s === "AWAITING_PRICE" ? "waiting for price"
-        : "already finalized";
-      const lines = dups.map((d) =>
-        `• ${stateLabel(d.state)}${d.hours != null ? ` · actual ${d.hours}h` : ""}`
-      ).join("\n");
-      const okDup = confirm(
-        `Villa ${villa} for "${client}" on ${startDate} already exists (${dups.length}):\n\n${lines}\n\nCreate ANOTHER entry anyway?`
-      );
-      if (!okDup) return;
-    }
-
+    // Lock BEFORE the awaited duplicate check — a double-tap during that
+    // network roundtrip used to fire two inserts. try/finally guarantees the
+    // lock is released on every path (cancel, error, success).
     submitting.current = true;
     setSaving(true);
-    const payload = {
-      state: "AWAITING_ACTUAL",
-      cluster: form.cluster ?? "",
-      phase: form.phase ?? "",
-      villa: form.villa,
-      bedroom_type: form.bedroom_type ?? "3 BR",
-      description: form.description,
-      floor_type: form.floor_type ?? "SOG",
-      start_date: form.start_date || todayDubai(),
-      status: form.status ?? "IN PROGRESS",
-      client: form.client,
-      apartment_number: form.apartment_number?.trim() ? form.apartment_number.trim() : null,
-      total_manpower: form.total_manpower,
-      check_in_time: form.check_in_time || null,
-      check_out_time: form.check_out_time || null,
-      break_start_time: form.break_start_time || null,
-      break_end_time: form.break_end_time || null,
-      employee_id: employee?.id ?? null,
-      employee_name: employee?.full_name ?? null,
-      created_by_id: employee?.id ?? null,
-    };
-    const { error } = await supabase.from("sunstar_work_entries").insert(payload);
-    setSaving(false);
-    submitting.current = false;
-    if (error) return flash(error.message, "error");
-    flash(`Queued · Villa ${form.villa}`, "success");
-    // Fully blank form on next entry — no values retained from the submitted one.
-    // (History still powers the typeahead suggestions, so repeat values are
-    // one tap away without being pre-filled.)
-    setForm(emptyNew());
-    onDone();
+    try {
+      // Duplicate check: warn if there's already an entry for the same
+      // villa + client + start_date in ANY state. Prevents the common "manager
+      // re-types the same job the next morning without realising it's already
+      // logged" mistake seen in production. User can still confirm to proceed.
+      const villa = form.villa.trim();
+      const client = form.client.trim();
+      const startDate = form.start_date || todayDubai();
+      const { data: dups, error: dupErr } = await supabase
+        .from("sunstar_work_entries")
+        .select("id, state, hours, created_at")
+        .ilike("villa", escapeLike(villa))
+        .ilike("client", escapeLike(client))
+        .eq("start_date", startDate)
+        .limit(3);
+      if (dupErr) {
+        // Non-blocking: if the check fails for any reason, proceed with insert.
+        // The DB will still take the row, and the admin can clean up if needed.
+        console.warn("Duplicate check failed:", dupErr.message);
+      } else if (dups && dups.length > 0) {
+        const stateLabel = (s: string) =>
+          s === "AWAITING_ACTUAL" ? "waiting for actual hours"
+          : s === "AWAITING_PRICE" ? "waiting for price"
+          : "already finalized";
+        const lines = dups.map((d) =>
+          `• ${stateLabel(d.state)}${d.hours != null ? ` · actual ${d.hours}h` : ""}`
+        ).join("\n");
+        const okDup = confirm(
+          `Villa ${villa} for "${client}" on ${startDate} already exists (${dups.length}):\n\n${lines}\n\nCreate ANOTHER entry anyway?`
+        );
+        if (!okDup) return;
+      }
+
+      const payload = {
+        state: "AWAITING_ACTUAL",
+        cluster: (form.cluster ?? "").trim(),
+        phase: (form.phase ?? "").trim(),
+        villa,
+        bedroom_type: (form.bedroom_type ?? "").trim(),
+        description: form.description.trim(),
+        floor_type: (form.floor_type ?? "").trim(),
+        start_date: startDate,
+        status: (form.status ?? "IN PROGRESS").trim() || "IN PROGRESS",
+        client,
+        apartment_number: form.apartment_number?.trim() ? form.apartment_number.trim() : null,
+        total_manpower: form.total_manpower,
+        check_in_time: form.check_in_time || null,
+        check_out_time: form.check_out_time || null,
+        break_start_time: form.break_start_time || null,
+        break_end_time: form.break_end_time || null,
+        employee_id: employee?.id ?? null,
+        employee_name: employee?.full_name ?? null,
+        created_by_id: employee?.id ?? null,
+      };
+      const { error } = await supabase.from("sunstar_work_entries").insert(payload);
+      if (error) return flash(error.message, "error");
+      flash(`Queued · Villa ${villa}`, "success");
+      // Fully blank form on next entry — no values retained from the submitted one.
+      // (History still powers the typeahead suggestions, so repeat values are
+      // one tap away without being pre-filled.)
+      setForm(emptyNew());
+      onDone();
+    } finally {
+      setSaving(false);
+      submitting.current = false;
+    }
   }
 
   const cx = (extra = "") =>
@@ -593,7 +637,7 @@ function NewEntryTab({
       <div className="mb-4">
         <h1 className="text-xl md:text-2xl font-bold text-brand-ink font-serif">New Morning Entry</h1>
         <div className="text-xs md:text-sm text-gray-500 mt-1">
-          Enter the job identifiers and target hours. Actual hours and points are filled later from the Queue tab.
+          Enter the job identifiers and times. Actual hours and point counts are filled later from the Queue tab.
         </div>
       </div>
 
@@ -677,7 +721,7 @@ function NewEntryTab({
         {saving ? "Queueing…" : "✓ Queue for actuals"}
       </button>
       <div className="text-xs text-gray-500 text-center mt-2">
-        You can edit anything before submitting. After submit, only the admin can change target hours.
+        You can edit anything before submitting. After submit, only the admin can change the entry.
       </div>
     </div>
   );

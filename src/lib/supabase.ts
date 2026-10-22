@@ -20,7 +20,7 @@ export type Condition =
   | { col: FilterCol; op: "equals" | "neq";                value: string | number }
   | { col: FilterCol; op: "in" | "nin";                    values: (string | number)[] }
   | { col: FilterCol; op: "contains";                      value: string }
-  | { col: FilterCol; op: "between";                       from: string | number; to: string | number }
+  | { col: FilterCol; op: "between";                       from?: string | number | null; to?: string | number | null }
   | { col: FilterCol; op: "gt" | "gte" | "lt" | "lte";     value: number | string };
 
 export type SavedFilter = {
@@ -95,6 +95,8 @@ export type WorkEntry = {
 
   per_hour_ratio?: number | null;
   created_at?: string;
+  /** Maintained by a DB touch trigger; used as the optimistic-concurrency token. */
+  updated_at?: string | null;
 };
 
 /** Labels for point-count fields — used by both forms and export */

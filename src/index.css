@@ -71,3 +71,8 @@ tbody tr { transition: background-color .12s ease; }
 ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 6px; }
 ::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
 ::-webkit-scrollbar-track { background: transparent; }
+
+/* Touch devices have no hover: keep the invoice line-delete button reachable. */
+@media (pointer: coarse) {
+  .inv-del { display: flex; }
+}

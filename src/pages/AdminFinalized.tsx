@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
 import type { WorkEntry, SavedFilter, Condition, FilterCol } from "../lib/supabase";
 import { passesConditions, rateTone, rateToneClasses } from "../lib/rate";
-import { fetchAll, todayDubai } from "../lib/data";
-import { downloadWorkbook, buildCsv } from "../lib/exportSheet";
+import { todayDubai } from "../lib/data";
 import { AddConditionPopover, FilterChip } from "../components/FilterBuilder";
-import { ClientMetricsChart } from "../components/ClientMetricsChart";
+// Lazy: recharts (~150 kB) only downloads when the insights column is shown.
+const ClientMetricsChart = lazy(() =>
+  import("../components/ClientMetricsChart").then((m) => ({ default: m.ClientMetricsChart })),
+);
 import { CompanyRatioPanel } from "../components/CompanyRatioPanel";
 import { Toast } from "../components/Toast";
 import type { ToastKind } from "../components/Toast";
@@ -64,9 +66,8 @@ type ActiveView =
   | { kind: "custom" }
   | { kind: "saved"; filter: SavedFilter };
 
-export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }) {
+export default function AdminFinalized({ finalized, allRows }: { finalized: WorkEntry[]; allRows: WorkEntry[] }) {
   const [views, setViews] = useState<SavedFilter[]>([]);
-  const [optionsByCol, setOptionsByCol] = useState<Partial<Record<FilterCol, string[]>>>({});
   const [active, setActive] = useState<ActiveView>({ kind: "all" });
   const [conds, setConds] = useState<Condition[]>([]);
   const [locked, setLocked] = useState(false);
@@ -111,9 +112,11 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
     setOpenMenuId(null);
     flash(`Deleted Villa ${r.villa}`, "success");
   }
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const flash = (msg: string, kind: ToastKind = "info") => {
     setToast({ msg, kind });
-    setTimeout(() => setToast(null), 3200);
+    clearTimeout(toastTimer.current); // an older toast's timer must not dismiss a newer one
+    toastTimer.current = setTimeout(() => setToast(null), 3200);
   };
 
   async function loadViews() {
@@ -125,32 +128,13 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
     setViews((data as SavedFilter[]) ?? []);
   }
 
-  /** Add one row's text values to the filter dropdowns (no full refetch). */
-  function mergeOptions(row: any) {
-    if (!row) return;
-    setOptionsByCol((prev) => {
-      const next = { ...prev };
-      TEXT_COLS.forEach((c) => {
-        const v = row[c];
-        if (v == null || String(v).trim() === "") return;
-        const val = String(v).trim();
-        const list = next[c] ?? [];
-        if (!list.includes(val)) next[c] = [...list, val].sort((a, b) => a.localeCompare(b));
-      });
-      return next;
-    });
-  }
-
-  async function loadOptions() {
-    // Paged past the 1,000-row API cap so older values still appear.
-    const { data, error } = await fetchAll<any>(() =>
-      supabase
-        .from("sunstar_work_entries")
-        .select(`id,${TEXT_COLS.join(",")}`)
-        .order("id"));
-    if (error) return;
+  /** Filter-dropdown values, derived from the rows the dashboard already
+   *  holds in memory — this used to re-scan the whole table on every tab
+   *  switch (and again in a realtime handler). AdminDashboard keeps allRows
+   *  live via its own realtime subscription, so this stays current for free. */
+  const optionsByCol = useMemo(() => {
     const acc: Partial<Record<FilterCol, Set<string>>> = {};
-    (data ?? []).forEach((row: any) => {
+    allRows.forEach((row: any) => {
       TEXT_COLS.forEach((c) => {
         const v = row[c];
         if (v == null || String(v).trim() === "") return;
@@ -162,16 +146,14 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
     TEXT_COLS.forEach((c) => {
       if (acc[c]) out[c] = Array.from(acc[c]!).sort((a, b) => a.localeCompare(b));
     });
-    setOptionsByCol(out);
-  }
+    return out;
+  }, [allRows]);
 
   useEffect(() => {
     loadViews();
-    loadOptions();
     const ch = supabase
       .channel("saved-filters-live")
       .on("postgres_changes", { event: "*", schema: "public", table: "sunstar_saved_filters" }, () => loadViews())
-      .on("postgres_changes", { event: "*", schema: "public", table: "sunstar_work_entries" }, (p: any) => mergeOptions(p.new))
       .subscribe();
     return () => { supabase.removeChannel(ch); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -270,6 +252,10 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
   const pages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   const clampedPage = Math.min(page, pages - 1);
   useEffect(() => { setPage(0); }, [conds, sortCol, sortDir, search]);
+  // If the row count shrinks (realtime deletes), snap the RAW page state back
+  // too — otherwise Prev decrements an invisible out-of-range value and the
+  // button looks dead for several clicks.
+  useEffect(() => { if (page > pages - 1) setPage(pages - 1); }, [page, pages]);
   const pageRows = rows.slice(clampedPage * PAGE_SIZE, clampedPage * PAGE_SIZE + PAGE_SIZE);
 
   const allClients = optionsByCol.client ?? [];
@@ -350,10 +336,14 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
       : "";
     return `sunstar_${view ? `${view}_` : ""}${todayDubai()}`;
   }
-  function exportCSV() {
-    downloadBlob(buildCsv(rows), "text/csv", `${exportBaseName()}.csv`);
+  async function exportCSV() {
+    // BOM so Excel decodes UTF-8 (Arabic client names) correctly.
+    const { buildCsv } = await import("../lib/exportSheet");
+    downloadBlob("﻿" + buildCsv(rows), "text/csv;charset=utf-8", `${exportBaseName()}.csv`);
   }
-  function exportXLSX() {
+  async function exportXLSX() {
+    // Lazy: the xlsx library (~400 kB) only downloads when someone exports.
+    const { downloadWorkbook } = await import("../lib/exportSheet");
     downloadWorkbook(rows, `${exportBaseName()}.xlsx`);
   }
 
@@ -426,11 +416,13 @@ export default function AdminFinalized({ finalized }: { finalized: WorkEntry[] }
         {!insightsCollapsed && (
           <section className="overflow-y-auto min-h-0 space-y-4 pr-1">
             <CompanyRatioPanel rows={rows} />
-            <ClientMetricsChart
-              rows={rows}
-              allClients={allClients}
-              onCompareClients={applyClientComparison}
-            />
+            <Suspense fallback={<div className="bg-white rounded-2xl p-4 shadow-sm text-xs text-gray-400">Loading chart…</div>}>
+              <ClientMetricsChart
+                rows={rows}
+                allClients={allClients}
+                onCompareClients={applyClientComparison}
+              />
+            </Suspense>
           </section>
         )}
 
