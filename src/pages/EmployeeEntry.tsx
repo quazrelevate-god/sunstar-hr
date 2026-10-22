@@ -571,13 +571,14 @@ function NewEntryTab({
       const villa = form.villa.trim();
       const client = form.client.trim();
       const startDate = form.start_date || todayDubai();
-      let dups: { id: string; state: string; hours: number | null }[] | null = null;
+      type DupRow = { id: string; state: string; hours: number | null };
+      let dups: DupRow[] | null = null;
       let dupErr: { message: string } | null = null;
       const rpc = await supabase.rpc("sunstar_dup_check", {
         p_villa: villa, p_client: client, p_start: startDate,
       });
       if (!rpc.error) {
-        dups = rpc.data as typeof dups;
+        dups = (rpc.data ?? null) as DupRow[] | null;
       } else {
         // Fallback (older DB without the function): direct query — sees only
         // the rows this user may read, which still catches queued duplicates.
@@ -588,7 +589,7 @@ function NewEntryTab({
           .ilike("client", escapeLike(client))
           .eq("start_date", startDate)
           .limit(3);
-        dups = direct.data as typeof dups;
+        dups = (direct.data ?? null) as DupRow[] | null;
         dupErr = direct.error;
       }
       if (dupErr) {
