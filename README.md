@@ -21,11 +21,9 @@ npm run dev
 
 Open http://localhost:5173.
 
-### Demo credentials (if the seed data was applied)
-| Role | Email | Password |
-|---|---|---|
-| Employee | employee@sunstar.test | employee123 |
-| Admin | admin@sunstar.test | admin123 |
+### Credentials
+Logins are provisioned by the admin from the **Employees** tab (username +
+password, min 8 chars). Never commit real credentials to this repository.
 
 ## Database
 Schema lives in the Supabase project and consists of:

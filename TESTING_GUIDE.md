@@ -14,7 +14,7 @@ The app replaces a paper/Excel workflow with two live interfaces:
 - **Admin portal** (desktop) — sets prices, sees analytics, manages users
 
 The end goal is to answer, per job and per client:
-> "Was this profitable?" — measured as **actual hours vs target hours** and **AED per hour**.
+> "What are we earning per hour?" — measured as **AED per hour** (total amount ÷ actual hours), per client and overall.
 
 **Live URL:** https://web-production-f23d9.up.railway.app
 
@@ -26,7 +26,7 @@ There are only **two roles**: `admin` and `employee`. No separate "manager" — 
 
 | Login | Password | Role | Landing page |
 |---|---|---|---|
-| `admin` | `admin123` | Admin | Queue tab (empty until entries exist) |
+| `admin` | *(set by the owner — never written down here)* | Admin | Queue tab (empty until entries exist) |
 | `sam` | *set by admin — Reset from Employees tab* | Employee | Queue tab (empty until entries exist) |
 
 Employee display name for `sam`: **109-EHTESAMUL HAQUE** (code `109`).
@@ -46,7 +46,7 @@ Every work entry moves through **three states** in order. This is the core of th
 
 | State | What it means | Who fills what | Where it shows |
 |---|---|---|---|
-| 🟡 **AWAITING_ACTUAL** | Job created in the morning. Identifiers + target hours locked in, no actual hours yet. | Employee entered: cluster, phase, villa, apartment, bedroom, floor, description, client, status, start date, target hours, total manpower, check-in time. | Employee **Queue** tab · Admin **Queue** tab |
+| 🟡 **AWAITING_ACTUAL** | Job created in the morning, no actual hours yet. | Employee entered: cluster, phase, villa, apartment, bedroom, floor, description, client, status, start date, total manpower, shift times (defaults 07:00–18:00, break 13:00–14:00). | Employee **Queue** tab · Admin **Queue** tab |
 | 🟠 **AWAITING_PRICE** | Employee finished the job. Actual hours + all point counts + check-out + break times are in. End date auto-stamped by the DB. Now waiting on admin. | Employee updated: actual hours, all 19 point counts, check-out/break times. | Admin **Queue** tab (Set Price button appears here) |
 | 🟢 **FINALIZED** | Admin has entered total price. Row enters analytics/charts and the "Finalized Entries" tab. | Admin filled: total price. Also allowed: full edit of any field. | Admin **Finalized Entries** tab (with company ratios, charts, filters, XLSX/CSV export) |
 
@@ -71,7 +71,7 @@ Two tabs: **Queue** (default landing) and **+ New Entry**.
 
 ### 4.2 + New Entry tab
 The **morning entry** form. Required fields marked with `*`:
-- Villa *, Description *, Client *, Total Manpower *, Check-in *, Target Hours *
+- Villa *, Description *, Client *, Total Manpower *, Check-in *
 - Optional: Cluster, Phase, Apartment (no `*` per spec), Bedroom, Floor, Status, Start Date, Check-out, Break start, Break end
 - Bedroom & Floor are **free-text inputs with autocomplete** — not dropdowns. As you type, past values appear. Type anything new — it's accepted and becomes a suggestion for others.
 - Same for Cluster / Phase / Villa / Description / Client / Apartment — history-based autocomplete via `<datalist>`.
@@ -81,7 +81,7 @@ The **morning entry** form. Required fields marked with `*`:
 | Observation | Explanation |
 |---|---|
 | "Bedroom is not a dropdown, it lets me type anything." | Correct — spec was changed from dropdown to editable autocomplete. |
-| "I can't edit my own submitted morning entry." | Correct — after submit, only admin can change target hours (spec). Employee must delete + recreate. |
+| "I can't edit my own submitted morning entry." | Correct — after submit, only an admin can change the entry (enforced by database rules, not just the UI). Before submit, the employee can still edit or delete it from the Queue. |
 | "There's no 'Cost' field anymore." | Correct — cost was removed entirely (spec). Only price exists, entered by admin. |
 | "I don't see the price of any entry I fill." | Correct — pricing is admin-only. |
 | "The queue is empty even though I know there's work." | The other employee may have already picked it up and moved it forward. Realtime keeps sessions in sync. |
@@ -98,7 +98,7 @@ Three tabs: **Queue** · **Finalized Entries** · **Employees**.
 - **Filter chips** at top: All / Awaiting actual / Awaiting price.
 - **Search** by villa, cluster, phase, client, employee.
 - Per-row actions:
-  - **Set price →** — only visible on `AWAITING_PRICE` rows. Opens a modal with a live AED/hr preview (color-coded green/amber/red vs target hours). Confirm → row moves to `FINALIZED`.
+  - **Set price →** — only visible on `AWAITING_PRICE` rows. Opens a modal with three billing shapes: **Total price** (single amount), **Quantity × price** (auto-computed total), and — when the villa/description contains "supply" — **Hours + AED/hr** (manpower mode, hours become the billable number). A live AED/hr preview updates as you type. Finalize → row moves to `FINALIZED`. If anything about the entry changed while the modal was open, the save is refused with a clear message instead of overwriting. |
   - **Edit** — opens the **Full Edit modal** (see 5.4).
   - **Delete** — confirmation modal, cannot be undone.
 - Empty state: "🎉 Queue is empty · All entries have been finalized."
@@ -111,15 +111,14 @@ A three-column split-screen designed for desktop analysis:
    - Saved filter views, listed alphabetically. Hover → rename ✎ / delete ×.
    - "+ New view" at the bottom.
 
-2. **Middle column — Metrics & charts** (sticky, scrolls independently)
-   - Entries · Total Hours · Revenue · Avg AED/hr cards.
-   - **Company-wise ratio panel** — one card per client showing:
-     - PROFIT / ON PLAN / LOSS chip (colored)
-     - Big ratio number (actual÷target hours)
-     - Progress bar of actual vs target
-     - Variance caption ("−10h under target" or "+5h over target")
-     - Entries · Revenue · AED/hr footer
+2. **Metrics & insights**
+   - Entries · Total Hours · Revenue · Avg AED/hr strip across the top.
+   - **Company AED/hr panel** (inside the collapsible "insights" column) — one
+     row per client: AED/hr pill (HIGH / AVG / LOW vs the fleet average),
+     client name, rate bar relative to the best-earning client, hours,
+     revenue and entry count. Default sort: lowest AED/hr first.
    - **Client metrics chart** with segmented toggle (Total price · Actual hours · AED/hr) and a "Compare clients" popover.
+   - The whole insights column is hidden by default — "📊 Show insights" above the Views list toggles it.
 
 3. **Right column — Toolbar + Table** (scrolls independently)
    - **+ Add condition** (dark) opens the filter builder.
@@ -163,8 +162,8 @@ For text columns, the "value" field is a **dropdown of values seen in past entri
 | "Editing a saved view forces me to click a Confirm modal." | Correct — friction is intentional to prevent accidental changes on team-shared views. |
 | "The pie chart legend shows only cluster names, no percentages." | Recharts default. Hover a slice for AED. |
 | "I filtered the chart's clients using Compare — the whole table filtered too." | Correct — every widget on this tab derives from the same filtered row set. That's the sync spec. |
-| "I can't edit target hours on an entry as an employee — only as admin." | Correct — enforced at the DB level via a trigger, not just UI. |
-| "The 'Ratio' number is above 1 for some clients." | Correct — a ratio > 1 means the team spent more hours than targeted (loss). A ratio < 1 means they finished faster (profit). |
+| "I can't edit prices or finalized entries as an employee." | Correct — enforced at the DB level (policies + triggers), not just UI. Employees also can't see finalized entries or prices at all. |
+| "A client shows LOW on the AED/hr panel." | Correct — LOW means that client's earned rate (total AED ÷ actual hours) is more than 5% below the fleet average; HIGH means above. |
 | "Real-time updates arrive without me refreshing." | Correct — Supabase Realtime subscriptions on every list view. Multi-user friendly. |
 | "The value dropdown in the filter builder shows lowercase and uppercase versions of the same word (e.g. 'v-14' and 'V-14')." | Because they are different distinct entries in history. Text comparisons in filters *are* case-insensitive, but the dropdown lists what was actually recorded. |
 | "I set target_hours on an entry — but the DB says only admin can, and I got an error." | Only enforced when the caller is not admin. Admin can always change. |
@@ -208,10 +207,10 @@ RLS policies enforce role-based access. Trigger `sunstar_set_end_date_on_actual`
 
 ## 9. How to test — suggested happy path
 
-1. **Sign in as `admin` / `admin123`**. Queue should be empty.
-2. Go to **Employees** → **+ New employee** → create yourself a test employee (e.g. `tester` / `test123` / Test Person / TST-001).
-3. Sign out. **Sign in as `tester` / `test123`**. Land on empty Queue.
-4. Go to **+ New Entry** → fill a job (Villa `T-1`, Client `TEST-CO`, Target Hours `10`, Manpower `2`) → **Queue for actuals**.
+1. **Sign in as `admin`** (with the owner's password). Queue should be empty.
+2. Go to **Employees** → **+ New employee** → create yourself a test employee (e.g. `tester` / a password of 8+ chars / Test Person / TST-001).
+3. Sign out. **Sign in as `tester`**. Land on empty Queue.
+4. Go to **+ New Entry** → fill a job (Villa `T-1`, Client `TEST-CO`, Manpower `2`; shift times are pre-filled) → **Queue for actuals**.
 5. Back to Queue. See the row 🟡. Click **Fill actuals →** → enter Actual Hours `8`, fill some point counts → **Submit for pricing**.
 6. Queue should now be empty (your work is done for the day).
 7. Sign out. Sign back in as **admin**. Go to **Queue**. See the 🟠 row. Click **Set price →** → enter `250` → **Finalize**. Live preview should show green (8 < 10 target = profit).
