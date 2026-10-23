@@ -14,6 +14,11 @@ import type { ToastKind } from "../components/Toast";
 import { FullEditModal } from "../components/FullEditModal";
 import { InvoiceModal } from "../components/InvoiceModal";
 
+/** Feature flag: invoicing is finished but HIDDEN until the client settles
+ *  payment (owner request, 2026-10-23). Flip to true to restore the Invoice
+ *  button and modal — no other change needed. */
+const INVOICING_ENABLED = false as boolean;
+
 const PAGE_SIZE = 50;
 const TEXT_COLS: FilterCol[] = [
   "cluster","phase","villa","bedroom_type","floor_type","description","client","status","apartment_number",
@@ -498,11 +503,13 @@ export default function AdminFinalized({ finalized, allRows }: { finalized: Work
                   className="border border-gray-400 text-gray-600 hover:bg-gray-100 font-semibold px-3 py-2 rounded-lg text-sm transition">
                   CSV
                 </button>
-                <button onClick={() => setInvoiceOpen(true)} disabled={rows.length === 0}
-                  title="Preview, edit and download an invoice for the entries in this view"
-                  className="border border-brand-blue text-brand-blueDark hover:bg-brand-blue hover:text-white font-semibold px-3 py-2 rounded-lg text-sm transition disabled:opacity-40 disabled:pointer-events-none">
-                  Invoice
-                </button>
+                {INVOICING_ENABLED && (
+                  <button onClick={() => setInvoiceOpen(true)} disabled={rows.length === 0}
+                    title="Preview, edit and download an invoice for the entries in this view"
+                    className="border border-brand-blue text-brand-blueDark hover:bg-brand-blue hover:text-white font-semibold px-3 py-2 rounded-lg text-sm transition disabled:opacity-40 disabled:pointer-events-none">
+                    Invoice
+                  </button>
+                )}
               </div>
             </div>
 
@@ -646,7 +653,7 @@ export default function AdminFinalized({ finalized, allRows }: { finalized: Work
         </section>
       </div>
 
-      {invoiceOpen && (
+      {INVOICING_ENABLED && invoiceOpen && (
         <InvoiceModal rows={rows} onClose={() => setInvoiceOpen(false)} flash={flash} />
       )}
 
