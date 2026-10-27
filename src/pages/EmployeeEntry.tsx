@@ -101,20 +101,32 @@ export default function EmployeeEntry() {
     });
   }
 
-  // Load distinct text-column history for autocomplete (all rows, paged past the 1,000-row API cap)
+  // Load distinct text-column history for autocomplete. Employees can only
+  // read their OWN entries now, so the org-wide history comes from a
+  // SECURITY DEFINER function that returns identifier values only (no hours,
+  // no prices). Falls back to a direct query (own rows) on older databases.
   async function loadSuggestions() {
     const cols = SUGGEST_COLS;
-    const { data, error } = await fetchAll<any>(() =>
-      supabase.from("sunstar_work_entries").select(`id,${cols.join(",")}`).order("id"));
-    if (error) return;
     const acc: Record<string, Set<string>> = {};
-    (data ?? []).forEach((row: any) => {
-      cols.forEach((c) => {
-        const v = row[c];
-        if (v == null || String(v).trim() === "") return;
-        (acc[c] ||= new Set()).add(String(v).trim());
+    const rpc = await supabase.rpc("sunstar_suggestions");
+    if (!rpc.error && rpc.data && typeof rpc.data === "object") {
+      for (const c of cols) {
+        for (const v of ((rpc.data as Record<string, string[]>)[c] ?? [])) {
+          if (v && String(v).trim() !== "") (acc[c] ||= new Set()).add(String(v).trim());
+        }
+      }
+    } else {
+      const { data, error } = await fetchAll<any>(() =>
+        supabase.from("sunstar_work_entries").select(`id,${cols.join(",")}`).order("id"));
+      if (error) return;
+      (data ?? []).forEach((row: any) => {
+        cols.forEach((c) => {
+          const v = row[c];
+          if (v == null || String(v).trim() === "") return;
+          (acc[c] ||= new Set()).add(String(v).trim());
+        });
       });
-    });
+    }
     const out: SuggestionMap = {};
     // Seed bedroom/floor with defaults so first-time users see something
     (["bedroom_type"] as const).forEach((c) => {

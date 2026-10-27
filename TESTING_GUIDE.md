@@ -22,7 +22,7 @@ The end goal is to answer, per job and per client:
 
 ## 2. The two login roles
 
-There are only **two roles**: `admin` and `employee`. No separate "manager" — any employee can create morning entries and complete afternoon entries.
+There are only **two roles**: `admin` and `employee`. No separate "manager" — every employee can create morning entries and complete afternoon entries, but each employee's Queue shows **only their own entries** (changed 2026-10-27; it used to be a shared site-wide queue). Admins see everything.
 
 | Login | Password | Role | Landing page |
 |---|---|---|---|
@@ -67,7 +67,7 @@ Two tabs: **Queue** (default landing) and **+ New Entry**.
   - Check-out / Break start / Break end (times)
   - 19 point counts (Power Socket, GI Box, Data, Telephone, Lighting, FCU, DB Conduit, GI Conduiting, GI-Circular Box, GI-Offset, Final Fix Switch, Final Fix Socket, Type 1–6 Light, LED Strip (m))
 - Submit → row moves to `AWAITING_PRICE`, drops out of the employee queue.
-- **Delete is allowed by any employee** on any `AWAITING_ACTUAL` or `AWAITING_PRICE` row. This is intentional — matches Sunstar's request.
+- **Delete is allowed only on your own `AWAITING_ACTUAL` rows** (enforced by database rules). Submitted (`AWAITING_PRICE`) and finalized rows can only be changed or deleted by an admin.
 
 ### 4.2 + New Entry tab
 The **morning entry** form. Required fields marked with `*`:
