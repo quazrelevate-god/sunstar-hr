@@ -1,4 +1,4 @@
-import { POINT_FIELDS } from "./supabase";
+import { COUNT_FIELDS } from "./supabase";
 import type { WorkEntry } from "./supabase";
 
 /* Everything on the invoice is a string so the admin can type freely in the
@@ -141,12 +141,12 @@ export function buildLines(rows: WorkEntry[]): InvoiceLine[] {
   type Group = { desc: string; kind: "single" | "multi" | "supply" | "ls"; unit: string;
                  qty: number; amount: number; mats: Map<string, number> };
   const groups = new Map<string, Group>();
-  const labelOf = (key: string) => INVOICE_LABEL[key] ?? POINT_FIELDS.find((p) => p.key === key)?.label ?? key;
+  const labelOf = (key: string) => INVOICE_LABEL[key] ?? COUNT_FIELDS.find((p) => p.key === key)?.label ?? key;
 
   for (const r of rows) {
     const desc = (r.description ?? "").toString().trim() || "Work";
     const amount = Number(r.total_price ?? 0) || 0;
-    const mats = POINT_FIELDS.map((p) => p.key as string).filter((k) => qtyOf(r, k) !== 0);
+    const mats = COUNT_FIELDS.map((p) => p.key as string).filter((k) => qtyOf(r, k) !== 0);
 
     let key: string, init: () => Group;
     if (isSupply(r) && mats.length === 0) {

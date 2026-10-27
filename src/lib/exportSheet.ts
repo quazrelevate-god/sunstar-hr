@@ -1,5 +1,5 @@
 import * as XLSX from "xlsx";
-import { POINT_FIELDS } from "./supabase";
+import { POINT_FIELDS, LIGHT_FIELDS } from "./supabase";
 import type { WorkEntry } from "./supabase";
 
 /*
@@ -91,6 +91,14 @@ const COLUMNS: Col[] = [
       header: POINT_SHORT[p.key as string] ?? p.label,
       value: (r) => num((r as any)[p.key]),
     })),
+
+  // Light types — pruned like every other column, so they only show up in
+  // sheets for clients that actually record light fittings.
+  ...LIGHT_FIELDS.map<Col>((p) => ({
+    id: p.key as string,
+    header: p.label,
+    value: (r) => num((r as any)[p.key]),
+  })),
 
   { id: "total", header: "Total AED", core: true, value: (r) => num(r.total_price) },
   {

@@ -90,6 +90,24 @@ export type WorkEntry = {
   type_no_6_light?: number;
   led_strip_light_meter?: number;
 
+  // Light types (2026-10-27) — quantities per fitting type, Ginco Meydan sheet
+  lt_d1?: number;
+  lt_d2_nrm?: number;
+  lt_d2_dim?: number;
+  lt_d3_nrm?: number;
+  lt_d3_dim?: number;
+  lt_d4_nrm?: number;
+  lt_d4_dim?: number;
+  lt_d5_nrm?: number;
+  lt_d5_dim?: number;
+  lt_d6_nrm?: number;
+  lt_d6_dim?: number;
+  lt_dl?: number;
+  lt_dr?: number;
+  lt_st_nrm?: number;
+  lt_st_dim?: number;
+  lt_chandelier?: number;
+
   // Price (admin)
   total_price: number | null;
 
@@ -121,6 +139,29 @@ export const POINT_FIELDS: { key: keyof WorkEntry; label: string; decimal?: bool
   { key: "type_no_6_light",       label: "Type 6 Light" },
   { key: "led_strip_light_meter", label: "LED Strip (m)", decimal: true },
 ];
+
+/** Light-type quantities — their own "Light Types" section in the forms. */
+export const LIGHT_FIELDS: { key: keyof WorkEntry; label: string; decimal?: boolean }[] = [
+  { key: "lt_d1",         label: "D1" },
+  { key: "lt_d2_nrm",     label: "D2 NRM" },
+  { key: "lt_d2_dim",     label: "D2 DIM" },
+  { key: "lt_d3_nrm",     label: "D3 NRM" },
+  { key: "lt_d3_dim",     label: "D3 DIM" },
+  { key: "lt_d4_nrm",     label: "D4 NRM" },
+  { key: "lt_d4_dim",     label: "D4 DIM" },
+  { key: "lt_d5_nrm",     label: "D5 NRM" },
+  { key: "lt_d5_dim",     label: "D5 DIM" },
+  { key: "lt_d6_nrm",     label: "D6 NRM" },
+  { key: "lt_d6_dim",     label: "D6 DIM" },
+  { key: "lt_dl",         label: "DL" },
+  { key: "lt_dr",         label: "DR" },
+  { key: "lt_st_nrm",     label: "ST-NRM" },
+  { key: "lt_st_dim",     label: "ST-DIM" },
+  { key: "lt_chandelier", label: "Chandelier" },
+];
+
+/** Every quantity field (points + light types) — for saving, validating, exporting. */
+export const COUNT_FIELDS = [...POINT_FIELDS, ...LIGHT_FIELDS];
 
 export type Employee = {
   id: string;

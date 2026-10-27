@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { supabase, POINT_FIELDS } from "../lib/supabase";
+import { supabase, POINT_FIELDS, LIGHT_FIELDS, COUNT_FIELDS } from "../lib/supabase";
 import type { WorkEntry } from "../lib/supabase";
 import { timeWarnings, maxHours } from "../lib/data";
 import type { ToastKind } from "./Toast";
@@ -71,7 +71,7 @@ export function FullEditModal({
       // to be skipped when empty, making a price silently un-removable.
       total_price: f.total_price != null && f.total_price !== ("" as any) ? Number(f.total_price) : null,
     };
-    POINT_FIELDS.forEach((p) => {
+    COUNT_FIELDS.forEach((p) => {
       const k = p.key as string;
       patch[k] = (f as any)[k] != null && (f as any)[k] !== "" ? Number((f as any)[k]) : 0;
     });
@@ -101,7 +101,7 @@ export function FullEditModal({
     const nums: [string, unknown][] = [
       ["Actual hours", f.hours],
       ["Total manpower", f.total_manpower], ["Total price", f.total_price],
-      ...POINT_FIELDS.map((p) => [p.label, (f as any)[p.key]] as [string, unknown]),
+      ...COUNT_FIELDS.map((p) => [p.label, (f as any)[p.key]] as [string, unknown]),
     ];
     const neg = nums.find(([, v]) => v != null && (v as any) !== "" && Number(v) < 0);
     if (neg) return flash(`${neg[0]} cannot be negative`, "error");
@@ -240,28 +240,30 @@ export function FullEditModal({
             )}
           </Section>
 
-          <Section title="Point counts">
-            <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
-              {POINT_FIELDS.map((p) => {
-                const k = p.key as string;
-                const val = (f as any)[k] ?? 0;
-                return (
-                  <FE key={k} label={p.label}>
-                    <input
-                      type="number" min={0} step={p.decimal ? "0.01" : "1"}
-                      value={val === 0 ? "" : val}
-                      onChange={(e) => {
-                        const n = (p.decimal ? parseFloat(e.target.value) : parseInt(e.target.value, 10)) || 0;
-                        if (n < 0) return;
-                        set(k as any, n);
-                      }}
-                      className={`${cx} text-center font-semibold`}
-                    />
-                  </FE>
-                );
-              })}
-            </div>
-          </Section>
+          {([["Point counts", POINT_FIELDS], ["Light types", LIGHT_FIELDS]] as const).map(([title, fields]) => (
+            <Section key={title} title={title}>
+              <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+                {fields.map((p) => {
+                  const k = p.key as string;
+                  const val = (f as any)[k] ?? 0;
+                  return (
+                    <FE key={k} label={p.label}>
+                      <input
+                        type="number" min={0} step={p.decimal ? "0.01" : "1"}
+                        value={val === 0 ? "" : val}
+                        onChange={(e) => {
+                          const n = (p.decimal ? parseFloat(e.target.value) : parseInt(e.target.value, 10)) || 0;
+                          if (n < 0) return;
+                          set(k as any, n);
+                        }}
+                        className={`${cx} text-center font-semibold`}
+                      />
+                    </FE>
+                  );
+                })}
+              </div>
+            </Section>
+          ))}
         </div>
 
         <div className="p-4 border-t flex justify-end gap-2 flex-shrink-0 bg-white rounded-b-2xl">
@@ -280,7 +282,7 @@ export function FullEditModal({
 
 const TIME_KEYS = new Set(["check_in_time", "check_out_time", "break_start_time", "break_end_time"]);
 const NUM_KEYS = new Set(["hours", "total_manpower", "total_price"]);
-const POINT_KEYS = new Set(POINT_FIELDS.map((p) => p.key as string));
+const POINT_KEYS = new Set(COUNT_FIELDS.map((p) => p.key as string));
 
 /** Normalise a field value so "unchanged" compares equal regardless of format
  *  (e.g. DB time "08:00:00" vs input "08:00", null vs "", 0 vs null for point counts). */

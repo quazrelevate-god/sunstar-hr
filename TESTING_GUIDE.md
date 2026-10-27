@@ -65,7 +65,8 @@ Two tabs: **Queue** (default landing) and **+ New Entry**.
 - Each row expands to reveal an **actuals form** with:
   - Actual Hours *
   - Check-out / Break start / Break end (times)
-  - 19 point counts (Power Socket, GI Box, Data, Telephone, Lighting, FCU, DB Conduit, GI Conduiting, GI-Circular Box, GI-Offset, Final Fix Switch, Final Fix Socket, Type 1–6 Light, LED Strip (m))
+  - 19 point counts (Power Socket, GI Box, 20mm, 25mm, 32mm, 50mm, DB Conduit, GI Conduiting, GI-Circular Box, GI-Offset, Final Fix Switch, Final Fix Socket, Type 1–6 Light, LED Strip (m))
+  - **Light Types** section — 16 quantity boxes: D1, D2 NRM, D2 DIM, D3 NRM, D3 DIM, D4 NRM, D4 DIM, D5 NRM, D5 DIM, D6 NRM, D6 DIM, DL, DR, ST-NRM, ST-DIM, Chandelier (added 2026-10-27). They also appear in admin Full Edit, as columns in the Finalized table, and in the Excel export (only the types that have values).
 - Submit → row moves to `AWAITING_PRICE`, drops out of the employee queue.
 - **Delete is allowed only on your own `AWAITING_ACTUAL` rows** (enforced by database rules). Submitted (`AWAITING_PRICE`) and finalized rows can only be changed or deleted by an admin.
 

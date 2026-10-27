@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../lib/auth";
-import { supabase, POINT_FIELDS } from "../lib/supabase";
+import { supabase, POINT_FIELDS, LIGHT_FIELDS, COUNT_FIELDS } from "../lib/supabase";
 import type { WorkEntry } from "../lib/supabase";
 import { fetchAll, fetchEntry, todayDubai, timeWarnings, maxHours } from "../lib/data";
 import { Toast } from "../components/Toast";
@@ -379,7 +379,7 @@ function QueueRow({
   const [breakEnd, setBreakEnd] = useState<string>(draft?.breakEnd ?? row.break_end_time ?? "");
   const [points, setPoints] = useState<Record<string, number>>(() => {
     const init: Record<string, number> = {};
-    POINT_FIELDS.forEach((p) => { init[p.key as string] = draft?.points?.[p.key as string] ?? 0; });
+    COUNT_FIELDS.forEach((p) => { init[p.key as string] = draft?.points?.[p.key as string] ?? 0; });
     return init;
   });
   const [saving, setSaving] = useState(false);
@@ -421,7 +421,7 @@ function QueueRow({
       state: "AWAITING_PRICE",
       actual_by_id: employee?.id ?? null,
     };
-    POINT_FIELDS.forEach((p) => { update[p.key as string] = points[p.key as string] ?? 0; });
+    COUNT_FIELDS.forEach((p) => { update[p.key as string] = points[p.key as string] ?? 0; });
     // Only update if the job is still waiting for actuals — stops two workers
     // overwriting each other's submission for the same job.
     const { error, count } = await supabase
@@ -504,6 +504,20 @@ function QueueRow({
             <div className="text-xs font-semibold text-gray-500 mb-2">Point Counts</div>
             <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
               {POINT_FIELDS.map((p) => (
+                <NumField
+                  key={p.key as string}
+                  label={p.label}
+                  v={points[p.key as string] ?? 0}
+                  on={(v) => setPt(p.key as string, v)}
+                  decimal={p.decimal}
+                />
+              ))}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs font-semibold text-gray-500 mb-2">Light Types</div>
+            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
+              {LIGHT_FIELDS.map((p) => (
                 <NumField
                   key={p.key as string}
                   label={p.label}

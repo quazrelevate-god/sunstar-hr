@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { supabase } from "../lib/supabase";
+import { supabase, LIGHT_FIELDS } from "../lib/supabase";
 import type { WorkEntry, SavedFilter, Condition, FilterCol } from "../lib/supabase";
 import { passesConditions, rateTone, rateToneClasses } from "../lib/rate";
 import { todayDubai } from "../lib/data";
@@ -36,6 +36,7 @@ const SORT_KIND: Record<string, "text" | "number" | "date"> = {
   power_point: "number", gi_box_nos: "number", data_point: "number",
   telephone_point: "number", lighting_point: "number", fcu_point: "number", db_conduit: "number",
   client: "text", employee_name: "text",
+  ...Object.fromEntries(LIGHT_FIELDS.map((f) => [f.key as string, "number" as const])),
 };
 
 /* Table columns, in render order. Row-number ("#") and the actions column
@@ -61,6 +62,7 @@ const COLUMNS: { label: string; col: string | null }[] = [
   { label: "32mm",      col: "lighting_point" },
   { label: "50mm",      col: "fcu_point" },
   { label: "DB",        col: "db_conduit" },
+  ...LIGHT_FIELDS.map((f) => ({ label: f.label, col: f.key as string })),
   { label: "Client",    col: "client" },
   { label: "Employee",  col: "employee_name" },
   { label: "",          col: null },
@@ -576,7 +578,7 @@ export default function AdminFinalized({ finalized, allRows }: { finalized: Work
                 </thead>
                 <tbody>
                   {pageRows.length === 0 ? (
-                    <tr><td className="p-10 text-center text-gray-400" colSpan={23}>No matching entries.</td></tr>
+                    <tr><td className="p-10 text-center text-gray-400" colSpan={COLUMNS.length}>No matching entries.</td></tr>
                   ) : pageRows.map((r, i) => {
                     const tone = rateTone(r);
                     return (
@@ -605,6 +607,9 @@ export default function AdminFinalized({ finalized, allRows }: { finalized: Work
                         <td className="px-3 py-2">{r.lighting_point}</td>
                         <td className="px-3 py-2">{r.fcu_point}</td>
                         <td className="px-3 py-2">{r.db_conduit}</td>
+                        {LIGHT_FIELDS.map((f) => (
+                          <td key={f.key as string} className="px-3 py-2">{(r as any)[f.key] ?? 0}</td>
+                        ))}
                         <td className="px-3 py-2">{r.client}</td>
                         <td className="px-3 py-2 text-xs text-gray-500">{r.employee_name}</td>
                         <td className="px-2 py-2 relative">
