@@ -47,7 +47,8 @@ export function renderInvoicePdf(inv: InvoiceDoc, img: InvoiceImages): jsPDF {
   /* Header: logo + company name block */
   const headH = 30;
   doc.rect(M, y, W, headH);
-  if (img.logo) doc.addImage(img.logo, "JPEG", M + 3, y + 4, 44, 22);
+  // Logo is ~2.86:1 (900×315); centred vertically in the header box.
+  if (img.logo) doc.addImage(img.logo, "JPEG", M + 3, y + (headH - 16.1) / 2, 46, 16.1);
   const textW = W - 56;
   const cx = M + 52 + textW / 2;
   doc.setTextColor(...PURPLE);
