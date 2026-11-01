@@ -39,34 +39,73 @@ const SORT_KIND: Record<string, "text" | "number" | "date"> = {
   ...Object.fromEntries(LIGHT_FIELDS.map((f) => [f.key as string, "number" as const])),
 };
 
-/* Table columns, in render order. Row-number ("#") and the actions column
- * aren't sortable, so their col is null. */
-const COLUMNS: { label: string; col: string | null }[] = [
-  { label: "#",         col: null },
-  { label: "Cluster",   col: "cluster" },
-  { label: "Phase",     col: "phase" },
-  { label: "Villa",     col: "villa" },
-  { label: "Apt",       col: "apartment_number" },
-  { label: "BR",        col: "bedroom_type" },
-  { label: "Desc",      col: "description" },
-  { label: "Fl",        col: "floor_type" },
-  { label: "Start",     col: "start_date" },
-  { label: "End",       col: "end_date" },
-  { label: "Actual",    col: "hours" },
-  { label: "Price",     col: "total_price" },
-  { label: "AED/hr",    col: "per_hour_ratio" },
-  { label: "PS",        col: "power_point" },
-  { label: "GI",        col: "gi_box_nos" },
-  { label: "20mm",      col: "data_point" },
-  { label: "25mm",      col: "telephone_point" },
-  { label: "32mm",      col: "lighting_point" },
-  { label: "50mm",      col: "fcu_point" },
-  { label: "DB",        col: "db_conduit" },
-  ...LIGHT_FIELDS.map((f) => ({ label: f.label, col: f.key as string })),
-  { label: "Client",    col: "client" },
-  { label: "Employee",  col: "employee_name" },
-  { label: "",          col: null },
+/* Collapsible column groups (Excel-style). Both start collapsed to a single
+ * thin ⇔ column; the admin expands them from the header. */
+type GroupId = "conduit" | "lights";
+const GROUPS: Record<GroupId, { title: string; tint: string; edge: string; bar: string }> = {
+  conduit: { title: "Conduit sizes", tint: "bg-amber-50/70", edge: "border-amber-300", bar: "bg-amber-100 text-amber-900" },
+  lights:  { title: "Light types",   tint: "bg-sky-50/70",   edge: "border-sky-300",   bar: "bg-sky-100 text-sky-900" },
+};
+const GROUPS_KEY = "sunstar-finalized-groups";
+
+/* Table columns, in render order. id is the WorkEntry field (sortable when it
+ * has a SORT_KIND entry); "#" and the actions column use synthetic ids. */
+type Column = { id: string; label: string; group?: GroupId };
+const COLUMNS: Column[] = [
+  { id: "rownum",           label: "#" },
+  { id: "cluster",          label: "Cluster" },
+  { id: "phase",            label: "Phase" },
+  { id: "villa",            label: "Villa" },
+  { id: "apartment_number", label: "Apt" },
+  { id: "bedroom_type",     label: "BR" },
+  { id: "description",      label: "Desc" },
+  { id: "floor_type",       label: "Fl" },
+  { id: "start_date",       label: "Start" },
+  { id: "end_date",         label: "End" },
+  { id: "hours",            label: "Actual" },
+  { id: "total_price",      label: "Price" },
+  { id: "per_hour_ratio",   label: "AED/hr" },
+  { id: "power_point",      label: "PS" },
+  { id: "gi_box_nos",       label: "GI" },
+  { id: "data_point",       label: "20mm", group: "conduit" },
+  { id: "telephone_point",  label: "25mm", group: "conduit" },
+  { id: "lighting_point",   label: "32mm", group: "conduit" },
+  { id: "fcu_point",        label: "50mm", group: "conduit" },
+  { id: "db_conduit",       label: "DB",   group: "conduit" },
+  // D1 stays always visible; D2 NRM … Chandelier collapse together.
+  ...LIGHT_FIELDS.map((f): Column => ({
+    id: f.key as string, label: f.label,
+    group: f.key === "lt_d1" ? undefined : "lights",
+  })),
+  { id: "client",           label: "Client" },
+  { id: "employee_name",    label: "Employee" },
+  { id: "actions",          label: "" },
 ];
+
+/* Runs of consecutive columns sharing a group (or ungrouped), so a collapsed
+ * group can be swapped for one marker column in header and body alike. */
+type Segment = { group?: GroupId; cols: Column[] };
+const SEGMENTS: Segment[] = COLUMNS.reduce<Segment[]>((acc, c) => {
+  const last = acc[acc.length - 1];
+  if (last && last.group === c.group) last.cols.push(c);
+  else acc.push({ group: c.group, cols: [c] });
+  return acc;
+}, []);
+
+/** How closely a client name matches the search text; lower is closer, null
+ *  is no match. exact → starts with → a word starts with → contains → letters
+ *  in order (so "gnc" still finds "GINCO"). */
+function clientRank(name: string, q: string): number | null {
+  const n = name.toLowerCase();
+  if (n === q) return 0;
+  if (n.startsWith(q)) return 1;
+  if (n.split(/[^a-z0-9]+/).some((w) => w.startsWith(q))) return 2;
+  if (n.includes(q)) return 3;
+  const letters = q.replace(/\s+/g, "");
+  let j = 0;
+  for (const ch of n) if (ch === letters[j]) j++;
+  return letters && j === letters.length ? 4 : null;
+}
 
 type ActiveView =
   | { kind: "all" }
@@ -178,12 +217,31 @@ export default function AdminFinalized({ finalized, allRows }: { finalized: Work
     try { localStorage.setItem(INSIGHTS_KEY, insightsCollapsed ? "1" : "0"); } catch {}
   }, [insightsCollapsed]);
 
-  // Search is a BOOST, not a filter: whatever the admin types is matched
-  // against the client name (case-insensitive, prefix match preferred) and
-  // the matching rows are hoisted to the top of the list. Non-matching rows
-  // keep their place below, so the full dataset stays visible and totals
-  // don't change as the admin types.
-  const [search, setSearch] = useState("");
+  // Collapsed/expanded state of the column groups, remembered per browser.
+  const [openGroups, setOpenGroups] = useState<Record<GroupId, boolean>>(() => {
+    try {
+      const v = JSON.parse(localStorage.getItem(GROUPS_KEY) ?? "{}");
+      return { conduit: v.conduit === true, lights: v.lights === true };
+    } catch { return { conduit: false, lights: false }; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(GROUPS_KEY, JSON.stringify(openGroups)); } catch {}
+  }, [openGroups]);
+  const toggleGroup = (g: GroupId) => setOpenGroups((s) => ({ ...s, [g]: !s[g] }));
+  const anyGroupOpen = openGroups.conduit || openGroups.lights;
+  const visibleColCount = SEGMENTS.reduce(
+    (n, s) => n + (s.group && !openGroups[s.group] ? 1 : s.cols.length), 0,
+  );
+
+  // Search is a BOOST, not a filter: the client name the admin picks (or
+  // types and confirms with Enter / the search button) is matched against
+  // each row's client and the matching rows are hoisted to the top of the
+  // list. Non-matching rows keep their place below, so the full dataset
+  // stays visible and totals don't change.
+  const [query, setQuery] = useState("");     // what's typed in the box
+  const [search, setSearch] = useState("");   // what's applied to the table
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const [suggestHi, setSuggestHi] = useState(-1);
   const filteredRows = useMemo(() => {
     if (conds.length === 0) return finalized;
     return finalized.filter((r) => passesConditions(r, conds));
@@ -226,27 +284,64 @@ export default function AdminFinalized({ finalized, allRows }: { finalized: Work
   /**
    * Final row order the table renders.
    * If search is empty: just the sorted rows.
-   * Otherwise: client-name matches are hoisted to the top. Within the matched
-   * group, "starts with" ranks higher than "contains anywhere", so typing
-   * "GIN" surfaces GINCO rows first and anything that merely contains "gin"
-   * right after. Rows that don't match the search stay underneath in their
-   * current sort order — nothing is hidden.
+   * Otherwise: client-name matches are hoisted to the top, closest first
+   * (see clientRank), so picking "GINCO" puts GINCO rows first and anything
+   * that merely contains "ginco" right after. Rows that don't match stay
+   * underneath in their current sort order — nothing is hidden.
    */
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return sortedRows;
-    const prefix: WorkEntry[] = [];
-    const contains: WorkEntry[] = [];
+    const buckets: WorkEntry[][] = [[], [], [], [], []];
     const rest: WorkEntry[] = [];
     for (const r of sortedRows) {
-      const client = (r.client ?? "").toString().toLowerCase();
-      if (!client) { rest.push(r); continue; }
-      if (client.startsWith(q)) prefix.push(r);
-      else if (client.includes(q)) contains.push(r);
-      else rest.push(r);
+      const rank = clientRank((r.client ?? "").toString(), q);
+      if (rank == null) rest.push(r); else buckets[rank].push(r);
     }
-    return [...prefix, ...contains, ...rest];
+    return [...buckets.flat(), ...rest];
   }, [sortedRows, search]);
+
+  /** Clients in the current view with their row counts — the search box
+   *  suggests from these, closest match first; all of them when empty. */
+  const clientCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of filteredRows) {
+      const c = (r.client ?? "").toString().trim();
+      if (c) m.set(c, (m.get(c) ?? 0) + 1);
+    }
+    return m;
+  }, [filteredRows]);
+  const suggestions = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const list = [...clientCounts.entries()].map(([name, count]) => ({
+      name, count, rank: q ? clientRank(name, q) : 0,
+    }));
+    return list
+      .filter((s) => s.rank != null)
+      .sort((a, b) => a.rank! - b.rank! || a.name.localeCompare(b.name));
+  }, [clientCounts, query]);
+  useEffect(() => { setSuggestHi(-1); }, [query]);
+
+  function applySearch(text: string) {
+    setQuery(text);
+    setSearch(text.trim());
+    setSuggestOpen(false);
+  }
+  function onSearchKey(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setSuggestOpen(true);
+      setSuggestHi((i) => Math.min(suggestions.length - 1, i + 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setSuggestHi((i) => Math.max(-1, i - 1));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      applySearch(suggestOpen && suggestHi >= 0 && suggestions[suggestHi] ? suggestions[suggestHi].name : query);
+    } else if (e.key === "Escape") {
+      setSuggestOpen(false);
+    }
+  }
 
   const metrics = useMemo(() => {
     const hours = filteredRows.reduce((s, r) => s + Number(r.hours || 0), 0);
@@ -266,6 +361,106 @@ export default function AdminFinalized({ finalized, allRows }: { finalized: Work
   const pageRows = rows.slice(clampedPage * PAGE_SIZE, clampedPage * PAGE_SIZE + PAGE_SIZE);
 
   const allClients = optionsByCol.client ?? [];
+
+  /* ---- table cells ---- */
+
+  /** Thin ⇔ header cell standing in for a collapsed group; click to expand. */
+  function groupMarker(s: Segment, key: number, rowSpan: number) {
+    const g = GROUPS[s.group!];
+    const names = s.cols.map((c) => c.label).join(", ");
+    return (
+      <th key={key} rowSpan={rowSpan} className="px-0.5 py-1 bg-slate-100 border-x border-slate-200 align-middle">
+        <button
+          type="button"
+          onClick={() => toggleGroup(s.group!)}
+          title={`Show ${g.title}: ${names}`}
+          aria-label={`Show ${g.title} (${s.cols.length} columns)`}
+          className="flex flex-col items-center w-7 mx-auto py-0.5 rounded text-slate-500 hover:bg-white hover:text-brand-blueDark transition"
+        >
+          <span className="text-base leading-none">⇔</span>
+          <span className="text-[10px] leading-none mt-0.5 tabular-nums">{s.cols.length}</span>
+        </button>
+      </th>
+    );
+  }
+
+  /** Tint + outer border for cells of an expanded group. */
+  function groupCellCls(s: Segment, ci: number) {
+    if (!s.group) return "";
+    const g = GROUPS[s.group];
+    return [
+      g.tint,
+      ci === 0 ? `border-l-2 ${g.edge}` : "",
+      ci === s.cols.length - 1 ? `border-r-2 ${g.edge}` : "",
+    ].join(" ");
+  }
+
+  function renderCell(c: Column, r: WorkEntry, i: number, extra: string) {
+    const td = (content: React.ReactNode, cls = "") => (
+      <td key={c.id} className={`px-3 py-2 ${cls} ${extra}`}>{content}</td>
+    );
+    switch (c.id) {
+      case "rownum":           return td(clampedPage * PAGE_SIZE + i + 1, "text-gray-400");
+      case "villa":            return td(r.villa, "font-semibold");
+      case "apartment_number": return td(r.apartment_number ?? "", "text-xs text-gray-500");
+      case "description":      return td(r.description, "whitespace-nowrap");
+      case "start_date":       return td(r.start_date ?? "", "text-xs text-gray-500");
+      case "end_date":         return td(r.end_date ?? "", "text-xs text-gray-500");
+      case "hours":            return td(r.hours ?? "");
+      case "total_price":      return td(r.total_price != null ? Number(r.total_price).toLocaleString() : "");
+      case "per_hour_ratio":
+        return td(
+          <span className={`inline-block font-bold px-2 py-0.5 rounded ${rateToneClasses(rateTone(r))}`}>
+            {r.per_hour_ratio ?? ""}
+          </span>,
+        );
+      case "employee_name":    return td(r.employee_name, "text-xs text-gray-500");
+      case "actions":
+        return (
+          <td key={c.id} className="px-2 py-2 relative">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setOpenMenuId(openMenuId === r.id ? null : (r.id ?? null));
+              }}
+              aria-label={`Row actions for Villa ${r.villa}`}
+              aria-haspopup="menu"
+              aria-expanded={openMenuId === r.id}
+              className="inline-flex items-center justify-center w-8 h-8 rounded-full text-gray-500 hover:bg-gray-100 hover:text-brand-ink"
+            >
+              ⋯
+            </button>
+            {openMenuId === r.id && (
+              <div
+                ref={menuHost}
+                role="menu"
+                className="absolute right-2 top-full mt-1 z-20 min-w-[10rem] bg-white border border-gray-200 rounded-lg shadow-lg py-1"
+              >
+                <button
+                  role="menuitem"
+                  onClick={() => { setOpenMenuId(null); setEditRow(r); }}
+                  className="block w-full text-left px-3 py-2 text-sm hover:bg-brand-blueSoft text-brand-ink"
+                >
+                  ✎ Edit entry
+                </button>
+                <button
+                  role="menuitem"
+                  onClick={() => { setOpenMenuId(null); setConfirmDeleteRow(r); }}
+                  className="block w-full text-left px-3 py-2 text-sm hover:bg-red-50 text-red-700"
+                >
+                  🗑 Delete entry
+                </button>
+              </div>
+            )}
+          </td>
+        );
+      default: {
+        // Light-type counts show 0 when unset; everything else shows as stored.
+        const v = (r as any)[c.id];
+        return td(c.id.startsWith("lt_") ? (v ?? 0) : v);
+      }
+    }
+  }
 
   // Selection helpers
   function selectAll() { setActive({ kind: "all" }); setConds([]); setLocked(false); }
@@ -449,27 +644,82 @@ export default function AdminFinalized({ finalized, allRows }: { finalized: Work
                     : "Compose conditions to narrow the results."}
                 </div>
               </div>
-              {/* Free-text search — stacks after conditions + sort. Matches
-                  villa, cluster, phase, client, description, employee, apt,
-                  bedroom/floor type, and status. */}
-              <div className="relative flex-1 min-w-[200px] max-w-xs">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none">⌕</span>
-                <input
-                  type="search"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Type a client name — matches jump to top"
-                  className="w-full border border-slate-200 rounded-lg pl-8 pr-8 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:border-brand-blue"
-                />
-                {search && (
+              {/* Client search — suggests client names as you type; picking
+                  one (or Enter / the search button) moves that client's rows
+                  to the top. type="text" so the browser adds no second ×. */}
+              <div className="relative flex-1 min-w-[220px] max-w-sm">
+                <div className="flex rounded-lg border border-slate-200 focus-within:ring-2 focus-within:ring-brand-blue/40 focus-within:border-brand-blue">
+                  <div className="relative flex-1 min-w-0">
+                    <input
+                      type="text"
+                      role="combobox"
+                      aria-expanded={suggestOpen}
+                      aria-controls="client-suggest"
+                      aria-autocomplete="list"
+                      autoComplete="off"
+                      value={query}
+                      onChange={(e) => {
+                        setQuery(e.target.value);
+                        setSuggestOpen(true);
+                        if (!e.target.value.trim()) setSearch("");
+                      }}
+                      onFocus={() => setSuggestOpen(true)}
+                      onClick={() => setSuggestOpen(true)}
+                      onBlur={() => setSuggestOpen(false)}
+                      onKeyDown={onSearchKey}
+                      placeholder="Search client…"
+                      className="w-full bg-transparent rounded-l-lg pl-3 pr-7 py-2 text-sm focus:outline-none"
+                    />
+                    {query && (
+                      <button
+                        type="button"
+                        aria-label="Clear search"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => { setQuery(""); setSearch(""); }}
+                        className="absolute right-1.5 top-1/2 -translate-y-1/2 w-5 h-5 inline-flex items-center justify-center text-gray-400 hover:text-brand-ink text-lg leading-none"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
                   <button
                     type="button"
-                    aria-label="Clear search"
-                    onClick={() => setSearch("")}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-brand-ink text-lg leading-none"
+                    aria-label="Search"
+                    title="Search"
+                    onClick={() => applySearch(query)}
+                    className="px-3 border-l border-slate-200 rounded-r-lg text-gray-500 hover:bg-brand-blueSoft hover:text-brand-blueDark transition"
                   >
-                    ×
+                    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4" aria-hidden="true">
+                      <circle cx="8.5" cy="8.5" r="5.5" />
+                      <path d="M12.5 12.5L17 17" strokeLinecap="round" />
+                    </svg>
                   </button>
+                </div>
+                {suggestOpen && (
+                  <ul
+                    id="client-suggest"
+                    role="listbox"
+                    onMouseDown={(e) => e.preventDefault()}
+                    className="absolute left-0 right-0 top-full mt-1 z-30 max-h-72 overflow-auto bg-white border border-slate-200 rounded-lg shadow-lg py-1 text-sm"
+                  >
+                    {suggestions.length === 0 ? (
+                      <li className="px-3 py-2 text-gray-400">
+                        {clientCounts.size === 0 ? "No clients in this view" : "No matching client"}
+                      </li>
+                    ) : suggestions.map((s, idx) => (
+                      <li
+                        key={s.name}
+                        role="option"
+                        aria-selected={idx === suggestHi}
+                        onClick={() => applySearch(s.name)}
+                        onMouseEnter={() => setSuggestHi(idx)}
+                        className={`flex items-center justify-between gap-3 px-3 py-1.5 cursor-pointer ${idx === suggestHi ? "bg-brand-blueSoft text-brand-blueDark" : "text-brand-ink"}`}
+                      >
+                        <span className="truncate">{s.name}</span>
+                        <span className="text-xs text-gray-400 tabular-nums">{s.count}</span>
+                      </li>
+                    ))}
+                  </ul>
                 )}
               </div>
               <div className="flex gap-2 flex-wrap">
@@ -539,6 +789,7 @@ export default function AdminFinalized({ finalized, allRows }: { finalized: Work
                 {rows.length} row{rows.length === 1 ? "" : "s"}
                 <span className="text-gray-400 font-normal">
                   {rows.length > PAGE_SIZE && ` · page ${clampedPage + 1} of ${pages}`}
+                  {search && ` · “${search}” first`}
                 </span>
               </div>
               {pages > 1 && (
@@ -553,104 +804,78 @@ export default function AdminFinalized({ finalized, allRows }: { finalized: Work
             <div className="overflow-auto flex-1 max-h-[75vh] xl:max-h-none">
               <table className="min-w-full text-sm">
                 <thead className="bg-gray-50 text-gray-600 text-xs uppercase sticky top-0 z-10">
+                  {/* Group title bars, only while a group is expanded. A
+                      collapsed group's ⇔ marker spans both header rows. */}
+                  {anyGroupOpen && (
+                    <tr>
+                      {SEGMENTS.map((s, si) => {
+                        if (!s.group) return <th key={si} colSpan={s.cols.length} />;
+                        if (!openGroups[s.group]) return groupMarker(s, si, 2);
+                        const g = GROUPS[s.group];
+                        const gid = s.group;
+                        const collapseBtn = (arrow: string) => (
+                          <button
+                            type="button"
+                            onClick={() => toggleGroup(gid)}
+                            title={`Collapse ${g.title}`}
+                            aria-label={`Collapse ${g.title}`}
+                            className="px-1.5 rounded hover:bg-white/70 text-sm leading-none"
+                          >
+                            {arrow}
+                          </button>
+                        );
+                        return (
+                          <th key={si} colSpan={s.cols.length}
+                            className={`px-1 py-1 border-x-2 border-t-2 ${g.edge} ${g.bar}`}>
+                            <div className="flex items-center justify-between gap-2 normal-case">
+                              {collapseBtn("⇥")}
+                              <span className="font-semibold whitespace-nowrap">{g.title}</span>
+                              {collapseBtn("⇤")}
+                            </div>
+                          </th>
+                        );
+                      })}
+                    </tr>
+                  )}
                   <tr>
-                    {COLUMNS.map((h, idx) => {
-                      const active = h.col && h.col === sortCol;
-                      const arrow = active ? (sortDir === "asc" ? " ↑" : sortDir === "desc" ? " ↓" : "") : "";
-                      return (
-                        <th key={`${h.label}-${idx}`} className="px-3 py-2 text-left whitespace-nowrap">
-                          {h.col ? (
-                            <button
-                              type="button"
-                              onClick={() => toggleSort(h.col!)}
-                              aria-sort={active ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
-                              className={`inline-flex items-center gap-0.5 cursor-pointer select-none hover:text-brand-ink transition ${active ? "text-brand-blueDark" : ""}`}
-                              title={active ? `Click to ${sortDir === "asc" ? "sort descending" : "clear sort"}` : "Click to sort ascending"}
-                            >
-                              <span>{h.label}</span>
-                              <span className="text-[10px]">{arrow}</span>
-                            </button>
-                          ) : h.label}
-                        </th>
-                      );
+                    {SEGMENTS.map((s, si) => {
+                      if (s.group && !openGroups[s.group]) return anyGroupOpen ? null : groupMarker(s, si, 1);
+                      return s.cols.map((h, ci) => {
+                        const sortable = h.id in SORT_KIND;
+                        const active = sortable && h.id === sortCol;
+                        const arrow = active ? (sortDir === "asc" ? " ↑" : sortDir === "desc" ? " ↓" : "") : "";
+                        return (
+                          <th key={h.id} className={`px-3 py-2 text-left whitespace-nowrap ${groupCellCls(s, ci)}`}>
+                            {sortable ? (
+                              <button
+                                type="button"
+                                onClick={() => toggleSort(h.id)}
+                                aria-sort={active ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
+                                className={`inline-flex items-center gap-0.5 cursor-pointer select-none hover:text-brand-ink transition ${active ? "text-brand-blueDark" : ""}`}
+                                title={active ? `Click to ${sortDir === "asc" ? "sort descending" : "clear sort"}` : "Click to sort ascending"}
+                              >
+                                <span>{h.label}</span>
+                                <span className="text-[10px]">{arrow}</span>
+                              </button>
+                            ) : h.label}
+                          </th>
+                        );
+                      });
                     })}
                   </tr>
                 </thead>
                 <tbody>
                   {pageRows.length === 0 ? (
-                    <tr><td className="p-10 text-center text-gray-400" colSpan={COLUMNS.length}>No matching entries.</td></tr>
-                  ) : pageRows.map((r, i) => {
-                    const tone = rateTone(r);
-                    return (
-                      <tr key={r.id} className="border-t hover:bg-brand-blueSoft">
-                        <td className="px-3 py-2 text-gray-400">{clampedPage * PAGE_SIZE + i + 1}</td>
-                        <td className="px-3 py-2">{r.cluster}</td>
-                        <td className="px-3 py-2">{r.phase}</td>
-                        <td className="px-3 py-2 font-semibold">{r.villa}</td>
-                        <td className="px-3 py-2 text-xs text-gray-500">{r.apartment_number ?? ""}</td>
-                        <td className="px-3 py-2">{r.bedroom_type}</td>
-                        <td className="px-3 py-2 whitespace-nowrap">{r.description}</td>
-                        <td className="px-3 py-2">{r.floor_type}</td>
-                        <td className="px-3 py-2 text-xs text-gray-500">{r.start_date ?? ""}</td>
-                        <td className="px-3 py-2 text-xs text-gray-500">{r.end_date ?? ""}</td>
-                        <td className="px-3 py-2">{r.hours ?? ""}</td>
-                        <td className="px-3 py-2">{r.total_price != null ? Number(r.total_price).toLocaleString() : ""}</td>
-                        <td className="px-3 py-2">
-                          <span className={`inline-block font-bold px-2 py-0.5 rounded ${rateToneClasses(tone)}`}>
-                            {r.per_hour_ratio ?? ""}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2">{r.power_point}</td>
-                        <td className="px-3 py-2">{r.gi_box_nos}</td>
-                        <td className="px-3 py-2">{r.data_point}</td>
-                        <td className="px-3 py-2">{r.telephone_point}</td>
-                        <td className="px-3 py-2">{r.lighting_point}</td>
-                        <td className="px-3 py-2">{r.fcu_point}</td>
-                        <td className="px-3 py-2">{r.db_conduit}</td>
-                        {LIGHT_FIELDS.map((f) => (
-                          <td key={f.key as string} className="px-3 py-2">{(r as any)[f.key] ?? 0}</td>
-                        ))}
-                        <td className="px-3 py-2">{r.client}</td>
-                        <td className="px-3 py-2 text-xs text-gray-500">{r.employee_name}</td>
-                        <td className="px-2 py-2 relative">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setOpenMenuId(openMenuId === r.id ? null : (r.id ?? null));
-                            }}
-                            aria-label={`Row actions for Villa ${r.villa}`}
-                            aria-haspopup="menu"
-                            aria-expanded={openMenuId === r.id}
-                            className="inline-flex items-center justify-center w-8 h-8 rounded-full text-gray-500 hover:bg-gray-100 hover:text-brand-ink"
-                          >
-                            ⋯
-                          </button>
-                          {openMenuId === r.id && (
-                            <div
-                              ref={menuHost}
-                              role="menu"
-                              className="absolute right-2 top-full mt-1 z-20 min-w-[10rem] bg-white border border-gray-200 rounded-lg shadow-lg py-1"
-                            >
-                              <button
-                                role="menuitem"
-                                onClick={() => { setOpenMenuId(null); setEditRow(r); }}
-                                className="block w-full text-left px-3 py-2 text-sm hover:bg-brand-blueSoft text-brand-ink"
-                              >
-                                ✎ Edit entry
-                              </button>
-                              <button
-                                role="menuitem"
-                                onClick={() => { setOpenMenuId(null); setConfirmDeleteRow(r); }}
-                                className="block w-full text-left px-3 py-2 text-sm hover:bg-red-50 text-red-700"
-                              >
-                                🗑 Delete entry
-                              </button>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                    <tr><td className="p-10 text-center text-gray-400" colSpan={visibleColCount}>No matching entries.</td></tr>
+                  ) : pageRows.map((r, i) => (
+                    <tr key={r.id} className="border-t hover:bg-brand-blueSoft">
+                      {SEGMENTS.map((s, si) =>
+                        s.group && !openGroups[s.group]
+                          ? <td key={`g${si}`} className="bg-slate-50 border-x border-slate-200" />
+                          : s.cols.map((c, ci) => renderCell(c, r, i, groupCellCls(s, ci))),
+                      )}
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
