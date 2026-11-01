@@ -92,6 +92,17 @@ const SEGMENTS: Segment[] = COLUMNS.reduce<Segment[]>((acc, c) => {
   return acc;
 }, []);
 
+const MONTHS = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+/** Year and month (1–12) an entry belongs to: End date, else Start date. */
+function periodDate(r: WorkEntry): { y: number; m: number } | null {
+  const s = (r.end_date || r.start_date || "").toString();
+  const m = s.match(/^(\d{4})-(\d{2})/);
+  return m ? { y: Number(m[1]), m: Number(m[2]) } : null;
+}
+
 /** How closely a client name matches the search text; lower is closer, null
  *  is no match. exact → starts with → a word starts with → contains → letters
  *  in order (so "gnc" still finds "GINCO"). */
@@ -242,10 +253,35 @@ export default function AdminFinalized({ finalized, allRows }: { finalized: Work
   const [search, setSearch] = useState("");   // what's applied to the table
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [suggestHi, setSuggestHi] = useState(-1);
+
+  // Universal Month / Year filter. Applied before everything else, so the
+  // metrics, insights, table, search and exports all see only that period;
+  // conditions and saved views stack on top. Not saved with views and not
+  // remembered — it opens on "All" every time. The entry's End date decides
+  // the month (Start date if End is missing).
+  const [month, setMonth] = useState<number | null>(null);   // 1–12
+  const [year, setYear] = useState<number | null>(null);
+  const periodRows = useMemo(() => {
+    if (month == null && year == null) return finalized;
+    return finalized.filter((r) => {
+      const d = periodDate(r);
+      if (!d) return false;
+      return (year == null || d.y === year) && (month == null || d.m === month);
+    });
+  }, [finalized, month, year]);
+  const yearOptions = useMemo(() => {
+    const ys = new Set<number>();
+    for (const r of finalized) { const d = periodDate(r); if (d) ys.add(d.y); }
+    if (year != null) ys.add(year);
+    return [...ys].sort((a, b) => b - a);
+  }, [finalized, year]);
+  const periodLabel = month == null && year == null ? ""
+    : [month != null ? MONTHS[month - 1] : "", year ?? ""].filter(Boolean).join(" ");
+
   const filteredRows = useMemo(() => {
-    if (conds.length === 0) return finalized;
-    return finalized.filter((r) => passesConditions(r, conds));
-  }, [finalized, conds]);
+    if (conds.length === 0) return periodRows;
+    return periodRows.filter((r) => passesConditions(r, conds));
+  }, [periodRows, conds]);
 
   // Click-to-sort state. Click cycles none → asc → desc → none. Click on a
   // different column snaps the direction back to asc. Metrics still read from
@@ -353,7 +389,7 @@ export default function AdminFinalized({ finalized, allRows }: { finalized: Work
   // Pagination
   const pages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   const clampedPage = Math.min(page, pages - 1);
-  useEffect(() => { setPage(0); }, [conds, sortCol, sortDir, search]);
+  useEffect(() => { setPage(0); }, [conds, sortCol, sortDir, search, month, year]);
   // If the row count shrinks (realtime deletes), snap the RAW page state back
   // too — otherwise Prev decrements an invisible out-of-range value and the
   // button looks dead for several clicks.
@@ -536,7 +572,8 @@ export default function AdminFinalized({ finalized, allRows }: { finalized: Work
     const view = active.kind === "saved"
       ? active.filter.name.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").slice(0, 40)
       : "";
-    return `sunstar_${view ? `${view}_` : ""}${todayDubai()}`;
+    const period = periodLabel.replace(/\s+/g, "-");
+    return `sunstar_${period ? `${period}_` : ""}${view ? `${view}_` : ""}${todayDubai()}`;
   }
   async function exportCSV() {
     // BOM so Excel decodes UTF-8 (Arabic client names) correctly.
@@ -555,8 +592,40 @@ export default function AdminFinalized({ finalized, allRows }: { finalized: Work
     <div className="xl:h-[calc(100vh-140px)] xl:overflow-hidden flex flex-col gap-4">
       {toast && <Toast msg={toast.msg} kind={toast.kind} />}
 
-      {/* Metrics summary strip — full width across the top */}
-      <MetricCards m={metrics} />
+      {/* Metrics summary strip — full width across the top, with the
+          universal Month / Year filter on its right. */}
+      <MetricCards m={metrics}>
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] uppercase tracking-wider font-semibold text-slate-500">Period</span>
+          <select
+            aria-label="Month"
+            value={month ?? ""}
+            onChange={(e) => setMonth(e.target.value ? Number(e.target.value) : null)}
+            className={`border rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-blue/40 ${month != null ? "border-brand-blue text-brand-blueDark font-semibold" : "border-slate-200"}`}
+          >
+            <option value="">All months</option>
+            {MONTHS.map((name, i) => <option key={name} value={i + 1}>{name}</option>)}
+          </select>
+          <select
+            aria-label="Year"
+            value={year ?? ""}
+            onChange={(e) => setYear(e.target.value ? Number(e.target.value) : null)}
+            className={`border rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-blue/40 ${year != null ? "border-brand-blue text-brand-blueDark font-semibold" : "border-slate-200"}`}
+          >
+            <option value="">All years</option>
+            {yearOptions.map((y) => <option key={y} value={y}>{y}</option>)}
+          </select>
+          {(month != null || year != null) && (
+            <button
+              type="button"
+              onClick={() => { setMonth(null); setYear(null); }}
+              className="text-xs text-gray-500 hover:text-brand-ink hover:underline"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+      </MetricCards>
 
       {/* Grid below the metrics strip. When insights are collapsed the middle
           column disappears entirely so the table reclaims the full width. */}
@@ -866,7 +935,7 @@ export default function AdminFinalized({ finalized, allRows }: { finalized: Work
                 </thead>
                 <tbody>
                   {pageRows.length === 0 ? (
-                    <tr><td className="p-10 text-center text-gray-400" colSpan={visibleColCount}>No matching entries.</td></tr>
+                    <tr><td className="p-10 text-center text-gray-400" colSpan={visibleColCount}>No matching entries{periodLabel ? ` in ${periodLabel}` : ""}.</td></tr>
                   ) : pageRows.map((r, i) => (
                     <tr key={r.id} className="border-t hover:bg-brand-blueSoft">
                       {SEGMENTS.map((s, si) =>
@@ -967,13 +1036,17 @@ export default function AdminFinalized({ finalized, allRows }: { finalized: Work
 /** Single thin strip — Entries · Total Hours · Revenue · Avg AED/hr — so the
  *  entries table below gets most of the vertical space. Numbers are the top
  *  typographic layer so they read at a glance from across the room. */
-function MetricCards({ m }: { m: { hours: number; revenue: number; perHour: number; count: number } }) {
+function MetricCards({ m, children }: {
+  m: { hours: number; revenue: number; perHour: number; count: number };
+  children?: React.ReactNode;
+}) {
   return (
     <div className="rounded-xl bg-white border border-slate-200/70 shadow-sm px-4 py-2.5 flex flex-wrap items-center gap-x-8 gap-y-2">
       <MetricInline label="Entries" value={m.count.toLocaleString()} />
       <MetricInline label="Total Hours" value={Math.round(m.hours).toLocaleString()} />
       <MetricInline label="Revenue" value={`AED ${m.revenue.toLocaleString()}`} accent />
       <MetricInline label="Avg AED/hr" value={m.perHour.toFixed(2)} accent />
+      {children && <div className="ml-auto">{children}</div>}
     </div>
   );
 }
