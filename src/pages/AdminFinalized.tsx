@@ -96,6 +96,11 @@ const MONTHS = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
 ];
+/** Today's year and month (1–12) in Dubai. */
+function currentPeriod(): { y: number; m: number } {
+  const t = todayDubai();
+  return { y: Number(t.slice(0, 4)), m: Number(t.slice(5, 7)) };
+}
 /** Year and month (1–12) an entry belongs to: End date, else Start date. */
 function periodDate(r: WorkEntry): { y: number; m: number } | null {
   const s = (r.end_date || r.start_date || "").toString();
@@ -103,10 +108,10 @@ function periodDate(r: WorkEntry): { y: number; m: number } | null {
   return m ? { y: Number(m[1]), m: Number(m[2]) } : null;
 }
 
-/** How closely a client name matches the search text; lower is closer, null
+/** How closely a name (client or saved view) matches the search text; lower is closer, null
  *  is no match. exact → starts with → a word starts with → contains → letters
  *  in order (so "gnc" still finds "GINCO"). */
-function clientRank(name: string, q: string): number | null {
+function nameRank(name: string, q: string): number | null {
   const n = name.toLowerCase();
   if (n === q) return 0;
   if (n.startsWith(q)) return 1;
@@ -125,6 +130,16 @@ type ActiveView =
 
 export default function AdminFinalized({ finalized, allRows }: { finalized: WorkEntry[]; allRows: WorkEntry[] }) {
   const [views, setViews] = useState<SavedFilter[]>([]);
+  const [viewQuery, setViewQuery] = useState("");
+  const shownViews = useMemo(() => {
+    const q = viewQuery.trim().toLowerCase();
+    if (!q) return views;
+    return views
+      .map((v) => ({ v, rank: nameRank(v.name, q) }))
+      .filter((x) => x.rank != null)
+      .sort((a, b) => a.rank! - b.rank! || a.v.name.localeCompare(b.v.name))
+      .map((x) => x.v);
+  }, [views, viewQuery]);
   const [active, setActive] = useState<ActiveView>({ kind: "all" });
   const [conds, setConds] = useState<Condition[]>([]);
   const [locked, setLocked] = useState(false);
@@ -256,11 +271,25 @@ export default function AdminFinalized({ finalized, allRows }: { finalized: Work
 
   // Universal Month / Year filter. Applied before everything else, so the
   // metrics, insights, table, search and exports all see only that period;
-  // conditions and saved views stack on top. Not saved with views and not
-  // remembered — it opens on "All" every time. The entry's End date decides
-  // the month (Start date if End is missing).
-  const [month, setMonth] = useState<number | null>(null);   // 1–12
-  const [year, setYear] = useState<number | null>(null);
+  // conditions and saved views stack on top. Not saved with views — it opens
+  // on the current Dubai month every time, and follows the calendar into the
+  // next month if the page is left open, until the admin picks a period
+  // themselves. The entry's End date decides the month (Start date if End
+  // is missing).
+  const [month, setMonth] = useState<number | null>(() => currentPeriod().m);   // 1–12
+  const [year, setYear] = useState<number | null>(() => currentPeriod().y);
+  const periodPicked = useRef(false);
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (periodPicked.current) return;
+      const cur = currentPeriod();
+      setMonth(cur.m);
+      setYear(cur.y);
+    }, 60_000);
+    return () => clearInterval(id);
+  }, []);
+  const now = currentPeriod();
+  const onCurrentPeriod = month === now.m && year === now.y;
   const periodRows = useMemo(() => {
     if (month == null && year == null) return finalized;
     return finalized.filter((r) => {
@@ -270,7 +299,7 @@ export default function AdminFinalized({ finalized, allRows }: { finalized: Work
     });
   }, [finalized, month, year]);
   const yearOptions = useMemo(() => {
-    const ys = new Set<number>();
+    const ys = new Set<number>([currentPeriod().y]);
     for (const r of finalized) { const d = periodDate(r); if (d) ys.add(d.y); }
     if (year != null) ys.add(year);
     return [...ys].sort((a, b) => b - a);
@@ -321,7 +350,7 @@ export default function AdminFinalized({ finalized, allRows }: { finalized: Work
    * Final row order the table renders.
    * If search is empty: just the sorted rows.
    * Otherwise: client-name matches are hoisted to the top, closest first
-   * (see clientRank), so picking "GINCO" puts GINCO rows first and anything
+   * (see nameRank), so picking "GINCO" puts GINCO rows first and anything
    * that merely contains "ginco" right after. Rows that don't match stay
    * underneath in their current sort order — nothing is hidden.
    */
@@ -331,7 +360,7 @@ export default function AdminFinalized({ finalized, allRows }: { finalized: Work
     const buckets: WorkEntry[][] = [[], [], [], [], []];
     const rest: WorkEntry[] = [];
     for (const r of sortedRows) {
-      const rank = clientRank((r.client ?? "").toString(), q);
+      const rank = nameRank((r.client ?? "").toString(), q);
       if (rank == null) rest.push(r); else buckets[rank].push(r);
     }
     return [...buckets.flat(), ...rest];
@@ -350,7 +379,7 @@ export default function AdminFinalized({ finalized, allRows }: { finalized: Work
   const suggestions = useMemo(() => {
     const q = query.trim().toLowerCase();
     const list = [...clientCounts.entries()].map(([name, count]) => ({
-      name, count, rank: q ? clientRank(name, q) : 0,
+      name, count, rank: q ? nameRank(name, q) : 0,
     }));
     return list
       .filter((s) => s.rank != null)
@@ -600,7 +629,7 @@ export default function AdminFinalized({ finalized, allRows }: { finalized: Work
           <select
             aria-label="Month"
             value={month ?? ""}
-            onChange={(e) => setMonth(e.target.value ? Number(e.target.value) : null)}
+            onChange={(e) => { periodPicked.current = true; setMonth(e.target.value ? Number(e.target.value) : null); }}
             className={`border rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-blue/40 ${month != null ? "border-brand-blue text-brand-blueDark font-semibold" : "border-slate-200"}`}
           >
             <option value="">All months</option>
@@ -609,19 +638,19 @@ export default function AdminFinalized({ finalized, allRows }: { finalized: Work
           <select
             aria-label="Year"
             value={year ?? ""}
-            onChange={(e) => setYear(e.target.value ? Number(e.target.value) : null)}
+            onChange={(e) => { periodPicked.current = true; setYear(e.target.value ? Number(e.target.value) : null); }}
             className={`border rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-blue/40 ${year != null ? "border-brand-blue text-brand-blueDark font-semibold" : "border-slate-200"}`}
           >
             <option value="">All years</option>
             {yearOptions.map((y) => <option key={y} value={y}>{y}</option>)}
           </select>
-          {(month != null || year != null) && (
+          {!onCurrentPeriod && (
             <button
               type="button"
-              onClick={() => { setMonth(null); setYear(null); }}
+              onClick={() => { periodPicked.current = false; setMonth(now.m); setYear(now.y); }}
               className="text-xs text-gray-500 hover:text-brand-ink hover:underline"
             >
-              Clear
+              This month
             </button>
           )}
         </div>
@@ -655,12 +684,37 @@ export default function AdminFinalized({ finalized, allRows }: { finalized: Work
             <span className="text-[10px] text-gray-400">{insightsCollapsed ? "▸" : "▾"}</span>
           </button>
           <div className="text-xs font-bold text-gray-500 uppercase tracking-wide px-2 mb-2">Views</div>
+          {/* Saved-view search: narrows the list below by view name, closest first. */}
+          <div className="relative mb-2">
+            <input
+              type="text"
+              value={viewQuery}
+              onChange={(e) => setViewQuery(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Escape") setViewQuery(""); }}
+              placeholder="Search views…"
+              aria-label="Search saved views"
+              className="w-full border border-slate-200 rounded-lg pl-2.5 pr-7 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:border-brand-blue"
+            />
+            {viewQuery && (
+              <button
+                type="button"
+                aria-label="Clear view search"
+                onClick={() => setViewQuery("")}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 w-5 h-5 inline-flex items-center justify-center text-gray-400 hover:text-brand-ink text-lg leading-none"
+              >
+                ×
+              </button>
+            )}
+          </div>
           <SidebarItem
             label="All entries"
             active={active.kind === "all"}
             onClick={selectAll}
           />
-          {views.map((v) => (
+          {viewQuery.trim() && shownViews.length === 0 && (
+            <div className="px-3 py-2 text-xs text-gray-400">No saved view matches “{viewQuery.trim()}”.</div>
+          )}
+          {shownViews.map((v) => (
             <SidebarItem
               key={v.id}
               label={v.name}
