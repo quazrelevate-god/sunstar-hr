@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { supabase } from "../lib/supabase";
+import { supabase, COUNT_FIELDS } from "../lib/supabase";
 import type { WorkEntry, EntryState } from "../lib/supabase";
 import { useAuth } from "../lib/auth";
 import { fetchAll, fetchEntry } from "../lib/data";
@@ -374,14 +374,25 @@ function PriceModal({
   const { employee } = useAuth();
   const manpower = isManpowerSupply(row);
 
+  // The worker's recorded count, when exactly one count box was filled
+  // (e.g. Roof Wiring = 5). It pre-fills Quantity so the admin only types the
+  // price. No count, or several different counts → nothing is assumed.
+  const recorded = useMemo(() => {
+    const filled = COUNT_FIELDS.filter((f) => Number((row as any)[f.key] ?? 0) !== 0);
+    return filled.length === 1
+      ? { label: filled[0].label, value: Number((row as any)[filled[0].key]) }
+      : null;
+  }, [row]);
+
   // Non-supply villas: toggle between "by quantity" (qty × price → total) and
   // "total" (single input). Supply villas keep the Hours+AED/hr dual input.
-  const [mode, setMode] = useState<NormalPriceMode>("total");
+  // Opens on "by quantity" when the recorded count is known.
+  const [mode, setMode] = useState<NormalPriceMode>(recorded ? "quantity" : "total");
 
   // Normal mode — Total price input
   const [price, setPrice] = useState<number | "">("");
   // Normal mode — Quantity + Price per quantity → auto Total
-  const [qty, setQty] = useState<number | "">("");
+  const [qty, setQty] = useState<number | "">(recorded?.value ?? "");
   const [qtyPrice, setQtyPrice] = useState<number | "">("");
   const qtyTotal = (typeof qty === "number" && typeof qtyPrice === "number")
     ? +(qty * qtyPrice).toFixed(2) : 0;
@@ -446,7 +457,7 @@ function PriceModal({
   // backdrop can't silently discard the price being prepared.
   const dirty = manpower
     ? mpRate !== "" || mpHours !== (row.hours ?? "")
-    : mode === "quantity" ? qty !== "" || qtyPrice !== "" : price !== "";
+    : mode === "quantity" ? qty !== (recorded?.value ?? "") || qtyPrice !== "" : price !== "";
   function requestClose() {
     if (dirty && !confirm("Discard the price you were entering?")) return;
     onClose();
@@ -518,15 +529,20 @@ function PriceModal({
         <>
           <div className="grid grid-cols-2 gap-3 mb-4">
             <label className="block">
-              <div className="text-xs font-semibold text-gray-500 mb-1">Quantity *</div>
-              <input type="number" min={0} step="1" autoFocus
+              <div className="text-xs font-semibold text-gray-500 mb-1">
+                Quantity *
+                {recorded && qty === recorded.value && (
+                  <span className="ml-1 font-normal text-brand-blueDark">· from {recorded.label}</span>
+                )}
+              </div>
+              <input type="number" min={0} step="any" autoFocus={!recorded}
                 value={qty}
                 onChange={(e) => setQty(e.target.value ? +e.target.value : "")}
                 className={inputCx}/>
             </label>
             <label className="block">
               <div className="text-xs font-semibold text-gray-500 mb-1">Price per quantity (AED) *</div>
-              <input type="number" min={0} step="0.01"
+              <input type="number" min={0} step="0.01" autoFocus={!!recorded}
                 value={qtyPrice}
                 onChange={(e) => setQtyPrice(e.target.value ? +e.target.value : "")}
                 className={inputCx}/>
