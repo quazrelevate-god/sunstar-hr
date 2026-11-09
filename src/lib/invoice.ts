@@ -123,7 +123,7 @@ export function todayDubaiDMY(): string {
 
 // Units the admin can overwrite in the preview; only these are known to be metres.
 const METRE_KEYS = new Set(["gi_conduiting", "led_strip_light_meter"]);
-const INVOICE_LABEL: Record<string, string> = { final_fix_switch: "Wiring accessories" };
+const INVOICE_LABEL: Record<string, string> = {};
 
 const isSupply = (r: WorkEntry) => /supply/i.test(`${r.villa ?? ""} ${r.description ?? ""}`);
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");

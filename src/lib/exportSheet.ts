@@ -24,7 +24,8 @@ type Col = {
 };
 
 // Shown in the app for data entry but never exported.
-const EXCLUDED_POINTS = new Set(["gi_circular_box", "gi_offset", "final_fix_socket"]);
+// final_fix_socket is now "Roof Wiring" (2026-11) — exported like other counts.
+const EXCLUDED_POINTS = new Set(["gi_circular_box", "gi_offset"]);
 
 const POINT_SHORT: Record<string, string> = {
   power_point: "PS",
@@ -35,8 +36,9 @@ const POINT_SHORT: Record<string, string> = {
   fcu_point: "50mm",
   db_conduit: "DB",
   gi_conduiting: "GI Cond.",
-  final_fix_switch: "Wiring Acc.",
-  type_no_1_light: "L1",
+  final_fix_switch: "Final Fix Acc.",
+  final_fix_socket: "Roof Wiring",
+  type_no_1_light: "Light Fitting",
   type_no_2_light: "L2",
   type_no_3_light: "L3",
   type_no_4_light: "L4",

@@ -384,6 +384,17 @@ function QueueRow({
   });
   const [saving, setSaving] = useState(false);
 
+  // Point Counts / Light Types can be folded away to save screen space. The
+  // last choice is remembered on this device; a section that already holds
+  // typed values (restored draft) always opens so nothing is hidden by surprise.
+  const filledIn = (fields: typeof COUNT_FIELDS) => fields.filter((f) => points[f.key as string]).length;
+  const [pointsOpen, togglePoints] = useRememberedOpen(
+    "sunstar-emp-points-open", POINT_FIELDS.some((f) => draft?.points?.[f.key as string]),
+  );
+  const [lightsOpen, toggleLights] = useRememberedOpen(
+    "sunstar-emp-lights-open", LIGHT_FIELDS.some((f) => draft?.points?.[f.key as string]),
+  );
+
   // Only persist a draft after the worker actually TYPED something. The form
   // initializes check-out/break from the row, so without this flag every
   // rendered row wrote a "phantom draft" on mount — which then shadowed any
@@ -500,8 +511,7 @@ function QueueRow({
                 className="w-full border rounded-lg px-3 py-3 text-base" />
             </Field>
           </div>
-          <div>
-            <div className="text-xs font-semibold text-gray-500 mb-2">Point Counts</div>
+          <FoldSection title="Point Counts" open={pointsOpen} onToggle={togglePoints} filled={filledIn(POINT_FIELDS)}>
             <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
               {POINT_FIELDS.map((p) => (
                 <NumField
@@ -513,9 +523,8 @@ function QueueRow({
                 />
               ))}
             </div>
-          </div>
-          <div>
-            <div className="text-xs font-semibold text-gray-500 mb-2">Light Types</div>
+          </FoldSection>
+          <FoldSection title="Light Types" open={lightsOpen} onToggle={toggleLights} filled={filledIn(LIGHT_FIELDS)}>
             <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
               {LIGHT_FIELDS.map((p) => (
                 <NumField
@@ -527,7 +536,7 @@ function QueueRow({
                 />
               ))}
             </div>
-          </div>
+          </FoldSection>
           <div className="text-xs text-gray-500">
             End date is stamped automatically when you submit.
           </div>
@@ -772,10 +781,55 @@ function NewEntryTab({
 /* ==============================
    Small field helpers
    ============================== */
+
+/** Open/closed flag remembered on this device (closed by default). */
+function useRememberedOpen(key: string, forceOpen: boolean) {
+  const [open, setOpen] = useState<boolean>(() => {
+    if (forceOpen) return true;
+    try { return localStorage.getItem(key) === "1"; } catch { return false; }
+  });
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    try { localStorage.setItem(key, next ? "1" : "0"); } catch {}
+  };
+  return [open, toggle] as const;
+}
+
+/** Section title with a narrow Show/Hide button; when folded, a badge says
+ *  how many boxes already hold a value. */
+function FoldSection({ title, open, onToggle, filled, children }: {
+  title: string; open: boolean; onToggle: () => void; filled: number; children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <div className={`flex items-center gap-2 ${open ? "mb-2" : ""}`}>
+        <span className="text-xs font-semibold text-gray-500">{title}</span>
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={open}
+          className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-2.5 py-0.5 text-[11px] font-semibold text-brand-blueDark hover:border-brand-blue hover:bg-brand-blueSoft"
+        >
+          {open ? "Hide" : "Show"}
+          <span aria-hidden="true" className="text-[9px]">{open ? "▲" : "▼"}</span>
+        </button>
+        {!open && filled > 0 && (
+          <span className="text-[11px] text-gray-500">{filled} filled</span>
+        )}
+      </div>
+      {open && children}
+    </div>
+  );
+}
+/** Required fields (label ends in "*") get a bold, dark label so they stand out. */
+const labelCls = (label: string, size: string) =>
+  label.trim().endsWith("*") ? `${size} font-bold text-brand-ink` : `${size} font-semibold text-gray-500`;
+
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <div className="text-xs font-semibold text-gray-500 mb-1">{label}</div>
+      <div className={`${labelCls(label, "text-xs")} mb-1`}>{label}</div>
       {children}
     </label>
   );
@@ -786,7 +840,7 @@ function NumField({
 }: { label: string; v: number | ""; on: (n: number) => void; decimal?: boolean; required?: boolean }) {
   return (
     <label className="block">
-      <div className="text-[11px] font-semibold text-gray-500 mb-1">{label}</div>
+      <div className={`${labelCls(label, "text-[11px]")} mb-1`}>{label}</div>
       <input
         type="number"
         inputMode={decimal ? "decimal" : "numeric"}
