@@ -346,26 +346,6 @@ export default function AdminFinalized({ finalized, allRows }: { finalized: Work
     return copy;
   }, [filteredRows, sortCol, sortDir]);
 
-  /**
-   * Final row order the table renders.
-   * If search is empty: just the sorted rows.
-   * Otherwise: client-name matches are hoisted to the top, closest first
-   * (see nameRank), so picking "GINCO" puts GINCO rows first and anything
-   * that merely contains "ginco" right after. Rows that don't match stay
-   * underneath in their current sort order — nothing is hidden.
-   */
-  const rows = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return sortedRows;
-    const buckets: WorkEntry[][] = [[], [], [], [], []];
-    const rest: WorkEntry[] = [];
-    for (const r of sortedRows) {
-      const rank = nameRank((r.client ?? "").toString(), q);
-      if (rank == null) rest.push(r); else buckets[rank].push(r);
-    }
-    return [...buckets.flat(), ...rest];
-  }, [sortedRows, search]);
-
   /** Clients in the current view with their row counts — the search box
    *  suggests from these, closest match first; all of them when empty. */
   const clientCounts = useMemo(() => {
@@ -387,10 +367,56 @@ export default function AdminFinalized({ finalized, allRows }: { finalized: Work
   }, [clientCounts, query]);
   useEffect(() => { setSuggestHi(-1); }, [query]);
 
+  /**
+   * Which rows the applied search covers — the same set is hoisted to the
+   * top of the table and counted in the metrics strip:
+   *  - search equals a client name (picked from the list) → that client only
+   *  - otherwise → every client whose name contains the text
+   * The letters-in-order fuzzy match only drives suggestions, never totals.
+   */
+  const searchMatch = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return null;
+    const exact = [...clientCounts.keys()].some((c) => c.toLowerCase() === q);
+    return (r: WorkEntry) => {
+      const c = (r.client ?? "").toString().trim().toLowerCase();
+      return exact ? c === q : c.includes(q);
+    };
+  }, [search, clientCounts]);
+
+  /**
+   * Final row order the table renders.
+   * If search is empty: just the sorted rows.
+   * Otherwise: the matched rows (see searchMatch) are hoisted to the top,
+   * closest names first (see nameRank). Rows that don't match stay
+   * underneath in their current sort order — nothing is hidden.
+   */
+  const rows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q || !searchMatch) return sortedRows;
+    const buckets: WorkEntry[][] = [[], [], [], []];
+    const rest: WorkEntry[] = [];
+    for (const r of sortedRows) {
+      if (!searchMatch(r)) { rest.push(r); continue; }
+      buckets[Math.min(3, nameRank((r.client ?? "").toString(), q) ?? 3)].push(r);
+    }
+    return [...buckets.flat(), ...rest];
+  }, [sortedRows, search, searchMatch]);
+
   function applySearch(text: string) {
     setQuery(text);
     setSearch(text.trim());
     setSuggestOpen(false);
+  }
+  /** Typed text confirmed with Enter / the search button. If no client name
+   *  contains it but a suggestion is close (e.g. "nkhl" → Nakheel), use that. */
+  function applyTyped() {
+    const q = query.trim().toLowerCase();
+    if (q && ![...clientCounts.keys()].some((c) => c.toLowerCase().includes(q)) && suggestions[0]) {
+      applySearch(suggestions[0].name);
+    } else {
+      applySearch(query);
+    }
   }
   function onSearchKey(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "ArrowDown") {
@@ -402,18 +428,22 @@ export default function AdminFinalized({ finalized, allRows }: { finalized: Work
       setSuggestHi((i) => Math.max(-1, i - 1));
     } else if (e.key === "Enter") {
       e.preventDefault();
-      applySearch(suggestOpen && suggestHi >= 0 && suggestions[suggestHi] ? suggestions[suggestHi].name : query);
+      if (suggestOpen && suggestHi >= 0 && suggestions[suggestHi]) applySearch(suggestions[suggestHi].name);
+      else applyTyped();
     } else if (e.key === "Escape") {
       setSuggestOpen(false);
     }
   }
 
+  // Metrics strip: the period + conditions, narrowed to the searched client
+  // when a search is applied. Insights and exports stay on the full view.
   const metrics = useMemo(() => {
-    const hours = filteredRows.reduce((s, r) => s + Number(r.hours || 0), 0);
-    const revenue = filteredRows.reduce((s, r) => s + Number(r.total_price || 0), 0);
+    const base = searchMatch ? filteredRows.filter(searchMatch) : filteredRows;
+    const hours = base.reduce((s, r) => s + Number(r.hours || 0), 0);
+    const revenue = base.reduce((s, r) => s + Number(r.total_price || 0), 0);
     const perHour = hours > 0 ? revenue / hours : 0;
-    return { hours, revenue, perHour, count: filteredRows.length };
-  }, [filteredRows]);
+    return { hours, revenue, perHour, count: base.length };
+  }, [filteredRows, searchMatch]);
 
   // Pagination
   const pages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
@@ -623,7 +653,24 @@ export default function AdminFinalized({ finalized, allRows }: { finalized: Work
 
       {/* Metrics summary strip — full width across the top, with the
           universal Month / Year filter on its right. */}
-      <MetricCards m={metrics}>
+      <MetricCards
+        m={metrics}
+        scope={search ? (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-blueSoft border border-brand-blue/40 text-brand-blueDark text-xs font-semibold pl-3 pr-1 py-1">
+            <span className="text-slate-500 font-normal">Showing:</span>
+            <span className="max-w-[16rem] truncate">{search}</span>
+            <button
+              type="button"
+              aria-label="Clear client search"
+              title="Back to the whole period"
+              onClick={() => { setQuery(""); setSearch(""); }}
+              className="w-5 h-5 inline-flex items-center justify-center rounded-full hover:bg-white text-base leading-none"
+            >
+              ×
+            </button>
+          </span>
+        ) : null}
+      >
         <div className="flex items-center gap-2">
           <span className="text-[11px] uppercase tracking-wider font-semibold text-slate-500">Period</span>
           <select
@@ -809,7 +856,7 @@ export default function AdminFinalized({ finalized, allRows }: { finalized: Work
                     type="button"
                     aria-label="Search"
                     title="Search"
-                    onClick={() => applySearch(query)}
+                    onClick={applyTyped}
                     className="px-3 border-l border-slate-200 rounded-r-lg text-gray-500 hover:bg-brand-blueSoft hover:text-brand-blueDark transition"
                   >
                     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4" aria-hidden="true">
@@ -1090,8 +1137,10 @@ export default function AdminFinalized({ finalized, allRows }: { finalized: Work
 /** Single thin strip — Entries · Total Hours · Revenue · Avg AED/hr — so the
  *  entries table below gets most of the vertical space. Numbers are the top
  *  typographic layer so they read at a glance from across the room. */
-function MetricCards({ m, children }: {
+function MetricCards({ m, scope, children }: {
   m: { hours: number; revenue: number; perHour: number; count: number };
+  /** What the numbers are narrowed to (the searched client), if anything. */
+  scope?: React.ReactNode;
   children?: React.ReactNode;
 }) {
   return (
@@ -1100,6 +1149,7 @@ function MetricCards({ m, children }: {
       <MetricInline label="Total Hours" value={Math.round(m.hours).toLocaleString()} />
       <MetricInline label="Revenue" value={`AED ${m.revenue.toLocaleString()}`} accent />
       <MetricInline label="Avg AED/hr" value={m.perHour.toFixed(2)} accent />
+      {scope}
       {children && <div className="ml-auto">{children}</div>}
     </div>
   );
