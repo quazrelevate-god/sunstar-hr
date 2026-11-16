@@ -77,6 +77,7 @@ export function renderInvoicePdf(inv: InvoiceDoc, img: InvoiceImages): jsPDF {
     ...wrap(doc, inv.fromName, colR - 4),
     ...wrap(doc, `INVOICE NO: ${inv.invoiceNo}`, colR - 4),
     ...wrap(doc, `INVOICE DATE: ${inv.invoiceDate}`, colR - 4),
+    ...(inv.period.trim() ? wrap(doc, `PERIOD: ${inv.period.trim()}`, colR - 4) : []),
     ...wrap(doc, `TRN: ${inv.ourTrn}`, colR - 4),
   ];
   const blockH = Math.max(left.length, right.length, 3) * LINE + 5;

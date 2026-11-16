@@ -143,8 +143,13 @@ async function rememberClient(inv: InvoiceDoc, entryClient: string, clients: Bil
   }
 }
 
-export function InvoiceModal({ rows, onClose, flash }: {
+/** What the Finalized list was narrowed by — shown above the preview so the
+ *  admin can confirm which entries the invoice is built from. */
+export type InvoiceScope = { period: string; conditions: number; view?: string; search?: string };
+
+export function InvoiceModal({ rows, scope, onClose, flash }: {
   rows: WorkEntry[];
+  scope?: InvoiceScope;
   onClose: () => void;
   flash: (m: string, k?: ToastKind) => void;
 }) {
@@ -174,11 +179,23 @@ export function InvoiceModal({ rows, onClose, flash }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const clientRows = useMemo(
+    () => rows.filter((r) => ((r.client ?? "").toString().trim() || "No client") === entryClient),
+    [rows, entryClient],
+  );
+  const basis = [
+    `${clientRows.length} entr${clientRows.length === 1 ? "y" : "ies"}`,
+    entryClient,
+    scope?.period || "All dates",
+    scope?.view ? `view “${scope.view}”` : "",
+    scope?.conditions ? `${scope.conditions} condition${scope.conditions === 1 ? "" : "s"}` : "",
+    scope?.search ? `search “${scope.search}”` : "",
+  ].filter(Boolean).join(" · ");
+
   // (Re)build the invoice whenever the chosen work-entry client changes.
   useEffect(() => {
     if (!loaded) return;
-    const list = rows.filter((r) => ((r.client ?? "").toString().trim() || "No client") === entryClient);
-    setInv(buildInvoice(list, entryClient, matchBillingClient(entryClient, clients)));
+    setInv(buildInvoice(clientRows, entryClient, matchBillingClient(entryClient, clients)));
     setDirty(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded, entryClient]);
@@ -256,6 +273,9 @@ export function InvoiceModal({ rows, onClose, flash }: {
           <div className="min-w-0">
             <div className="font-bold text-brand-ink">Invoice preview</div>
             <div className="text-xs text-slate-500">Click any text or number to edit. Empty optional rows are left off the PDF.</div>
+            <div className="text-xs font-semibold text-brand-blueDark mt-0.5" title="The entries in your current Finalized list for this client">
+              Based on: {basis}
+            </div>
           </div>
           {entryClients.length > 1 && (
             <label className="flex items-center gap-2 text-xs text-slate-600">
@@ -313,6 +333,8 @@ export function InvoiceModal({ rows, onClose, flash }: {
                     <Field value={inv.invoiceNo} onChange={(v) => set("invoiceNo", v)} placeholder="e.g. INV/…/01" /></div>
                   <div className="flex items-baseline gap-1"><span className="shrink-0">INVOICE DATE:</span>
                     <Field value={inv.invoiceDate} onChange={(v) => set("invoiceDate", v)} /></div>
+                  <div className="flex items-baseline gap-1"><span className="shrink-0">PERIOD:</span>
+                    <Field value={inv.period} onChange={(v) => set("period", v)} placeholder="optional" /></div>
                   <div className="flex items-baseline gap-1"><span>TRN:</span>
                     <Field value={inv.ourTrn} onChange={(v) => set("ourTrn", v)} /></div>
                 </div>

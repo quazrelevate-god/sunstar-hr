@@ -23,6 +23,8 @@ export type InvoiceDoc = {
   fromName: string;
   invoiceNo: string;
   invoiceDate: string;
+  /** Work period covered, e.g. "November 2026" — printed under the date when set. */
+  period: string;
   ourTrn: string;
   project: string;
   jobNo: string;
@@ -195,6 +197,27 @@ export function buildLines(rows: WorkEntry[]): InvoiceLine[] {
   });
 }
 
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+/** Month(s) the entries fall in, by End date (Start date if End is missing):
+ *  "November 2026", "October – November 2026" or "December 2025 – January 2026". */
+export function periodOf(rows: WorkEntry[]): string {
+  const keys = rows
+    .map((r) => (r.end_date || r.start_date || "").toString().match(/^(\d{4})-(\d{2})/))
+    .filter((m): m is RegExpMatchArray => m != null)
+    .map((m) => ({ y: Number(m[1]), m: Number(m[2]) }))
+    .sort((a, b) => a.y - b.y || a.m - b.m);
+  if (keys.length === 0) return "";
+  const a = keys[0], b = keys[keys.length - 1];
+  const name = (k: { y: number; m: number }) => MONTH_NAMES[k.m - 1];
+  if (a.y === b.y && a.m === b.m) return `${name(a)} ${a.y}`;
+  if (a.y === b.y) return `${name(a)} – ${name(b)} ${a.y}`;
+  return `${name(a)} ${a.y} – ${name(b)} ${b.y}`;
+}
+
 /** Billing client previously used for this work-entry client label, if any. */
 export function matchBillingClient(entryClient: string, clients: BillingClient[]): BillingClient | undefined {
   const k = entryClient.trim().toLowerCase();
@@ -210,6 +233,7 @@ export function buildInvoice(rows: WorkEntry[], entryClient: string, billing?: B
     clientTrn: billing?.trn ?? "",
     invoiceNo: billing ? nextInvoiceNo(billing.last_invoice_no) : "",
     invoiceDate: todayDubaiDMY(),
+    period: periodOf(rows),
     project: billing?.last_project ?? "",
     jobNo: "",
     lpoRef: "",

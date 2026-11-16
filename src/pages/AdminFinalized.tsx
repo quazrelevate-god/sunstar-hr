@@ -14,10 +14,9 @@ import type { ToastKind } from "../components/Toast";
 import { FullEditModal } from "../components/FullEditModal";
 import { InvoiceModal } from "../components/InvoiceModal";
 
-/** Feature flag: invoicing is finished but HIDDEN until the client settles
- *  payment (owner request, 2026-10-23). Flip to true to restore the Invoice
- *  button and modal — no other change needed. */
-const INVOICING_ENABLED = false as boolean;
+/** Feature flag for the Invoice button + modal. Hidden 2026-10-23 while
+ *  payment was pending; turned back on 2026-11-16 (owner request). */
+const INVOICING_ENABLED = true as boolean;
 
 const PAGE_SIZE = 50;
 const TEXT_COLS: FilterCol[] = [
@@ -444,6 +443,13 @@ export default function AdminFinalized({ finalized, allRows }: { finalized: Work
     const perHour = hours > 0 ? revenue / hours : 0;
     return { hours, revenue, perHour, count: base.length };
   }, [filteredRows, searchMatch]);
+
+  // The invoice is built from exactly what's listed: period + conditions,
+  // narrowed to the searched client when a search is applied.
+  const invoiceRows = useMemo(
+    () => (searchMatch ? rows.filter(searchMatch) : rows),
+    [rows, searchMatch],
+  );
 
   // Pagination
   const pages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
@@ -926,7 +932,7 @@ export default function AdminFinalized({ finalized, allRows }: { finalized: Work
                   CSV
                 </button>
                 {INVOICING_ENABLED && (
-                  <button onClick={() => setInvoiceOpen(true)} disabled={rows.length === 0}
+                  <button onClick={() => setInvoiceOpen(true)} disabled={invoiceRows.length === 0}
                     title="Preview, edit and download an invoice for the entries in this view"
                     className="border border-brand-blue text-brand-blueDark hover:bg-brand-blue hover:text-white font-semibold px-3 py-2 rounded-lg text-sm transition disabled:opacity-40 disabled:pointer-events-none">
                     Invoice
@@ -1054,7 +1060,17 @@ export default function AdminFinalized({ finalized, allRows }: { finalized: Work
       </div>
 
       {INVOICING_ENABLED && invoiceOpen && (
-        <InvoiceModal rows={rows} onClose={() => setInvoiceOpen(false)} flash={flash} />
+        <InvoiceModal
+          rows={invoiceRows}
+          scope={{
+            period: periodLabel,
+            conditions: conds.length,
+            view: active.kind === "saved" ? active.filter.name : undefined,
+            search: search || undefined,
+          }}
+          onClose={() => setInvoiceOpen(false)}
+          flash={flash}
+        />
       )}
 
       <AddConditionPopover
