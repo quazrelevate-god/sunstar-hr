@@ -43,6 +43,10 @@ export type BillingClient = {
   entry_clients: string[];
   last_invoice_no: string;
   last_project: string;
+  /** Proforma numbers run as their own series (sql/2026-11-18_progress_invoices.sql). */
+  last_proforma_no?: string;
+  /** Remembered scope / subject / reference / retention for progress invoices. */
+  doc_defaults?: { scope?: string; subject?: string; reference?: string; retention?: string };
 };
 
 export const COMPANY_DEFAULTS = {

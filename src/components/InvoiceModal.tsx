@@ -1,15 +1,23 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { supabase } from "../lib/supabase";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { supabase, COUNT_FIELDS } from "../lib/supabase";
 import type { WorkEntry } from "../lib/supabase";
 import type { ToastKind } from "./Toast";
 import {
   blankLine, buildInvoice, editLine, fmtMoney, matchBillingClient, nextInvoiceNo, parseNum, totals,
 } from "../lib/invoice";
 import type { BillingClient, InvoiceDoc, InvoiceLine } from "../lib/invoice";
+import {
+  buildProgressRows, buildProforma, buildSummary, clientKey, isChinaRailway, normLabel,
+  pickCountField, proformaTotals, typicalRate, usedCountFields,
+} from "../lib/progress";
+import type { DocDefaults, ProformaDoc, SavedItem, SummaryDoc } from "../lib/progress";
 import logoUrl from "../assets/invoice-logo.jpg";
 import stampUrl from "../assets/invoice-stamp.jpg";
+import { EDIT, Field, MoneyField, Area, ClientNameField } from "./invoiceFields";
+import { ProformaSheet, SummarySheet } from "./ProgressSheets";
 
 const TABLE = "sunstar_invoice_clients";
+const ITEMS = "sunstar_progress_items";
 
 async function toDataUrl(url: string): Promise<string> {
   const blob = await (await fetch(url)).blob();
@@ -21,106 +29,28 @@ async function toDataUrl(url: string): Promise<string> {
   });
 }
 
-/* Inline editable controls — look like plain invoice text until hovered/focused. */
-const EDIT =
-  "w-full bg-transparent rounded-sm px-1 -mx-1 border border-transparent outline-none " +
-  "hover:border-dashed hover:border-sky-400 focus:border-sky-500 focus:bg-sky-50/70 placeholder:text-slate-400 placeholder:font-normal";
+const fileName = (prefix: string, no: string, fallback: string, date: string) =>
+  `${prefix}_${no.trim() || fallback.trim()}_${date}`.replace(/[^\w.-]+/g, "_").replace(/_+/g, "_").slice(0, 100);
 
-function Field({ value, onChange, className = "", placeholder, inputMode }: {
-  value: string; onChange: (v: string) => void; className?: string; placeholder?: string;
-  inputMode?: "decimal" | "text";
-}) {
-  return (
-    <input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
-      inputMode={inputMode} className={`${EDIT} ${className}`} />
-  );
-}
-
-/** Number field: shows "1,250.00" when idle, the raw typed value while editing. */
-function MoneyField({ value, onChange, className = "" }: {
-  value: string; onChange: (v: string) => void; className?: string;
-}) {
-  const [focused, setFocused] = useState(false);
-  const n = parseNum(value);
-  return (
-    <input value={focused || n == null ? value : fmtMoney(n)} inputMode="decimal"
-      onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
-      onChange={(e) => onChange(e.target.value)} className={`${EDIT} ${className}`} />
-  );
-}
-
-function Area({ value, onChange, className = "", placeholder }: {
-  value: string; onChange: (v: string) => void; className?: string; placeholder?: string;
-}) {
-  const ref = useRef<HTMLTextAreaElement>(null);
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
-  }, [value]);
-  return (
-    <textarea ref={ref} rows={1} value={value} onChange={(e) => onChange(e.target.value)}
-      placeholder={placeholder} className={`${EDIT} resize-none overflow-hidden leading-snug ${className}`} />
-  );
-}
-
-/** Billing-client name with a type-ahead list of saved clients. */
-function ClientNameField({ value, onChange, clients, onPick }: {
-  value: string; onChange: (v: string) => void; clients: BillingClient[]; onPick: (c: BillingClient) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const wrap = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (e: MouseEvent) => { if (!wrap.current?.contains(e.target as Node)) setOpen(false); };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, [open]);
-
-  const q = value.trim().toLowerCase();
-  const matches = (q
-    ? [...clients.filter((c) => c.name.toLowerCase().startsWith(q)),
-       ...clients.filter((c) => !c.name.toLowerCase().startsWith(q) && c.name.toLowerCase().includes(q))]
-    : clients
-  ).filter((c) => c.name.toLowerCase() !== q).slice(0, 8);
-
-  return (
-    <div className="relative" ref={wrap}>
-      <Area value={value} placeholder="Client name — type to pick a saved client"
-        onChange={(v) => { onChange(v); setOpen(true); }} />
-      {open && matches.length > 0 && (
-        <ul className="absolute left-0 right-0 top-full mt-1 z-10 bg-white border border-slate-200 rounded-lg shadow-xl py-1 font-normal normal-case">
-          {matches.map((c) => (
-            <li key={c.id}>
-              <button type="button" onMouseDown={(e) => { e.preventDefault(); onPick(c); setOpen(false); }}
-                className="w-full text-left px-3 py-2 hover:bg-sky-50">
-                <div className="text-[12px] font-semibold text-slate-900">{c.name}</div>
-                <div className="text-[11px] text-slate-500">
-                  {[c.address, c.trn && `TRN ${c.trn}`].filter(Boolean).join(" · ") || "No address saved"}
-                </div>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-/** Save/refresh the billing client after a download so the next invoice is pre-filled. */
-async function rememberClient(inv: InvoiceDoc, entryClient: string, clients: BillingClient[]) {
-  const name = inv.clientName.trim();
+/** Save/refresh the billing client after a download so the next document is
+ *  pre-filled. Fields left undefined are not touched. */
+async function rememberClient(f: {
+  name: string; address?: string; trn?: string; project?: string;
+  invoiceNo?: string; proformaNo?: string; docDefaults?: DocDefaults;
+}, entryClient: string, clients: BillingClient[]) {
+  const name = f.name.trim();
   if (!name) return;
   const key = name.toLowerCase();
   const label = entryClient.trim();
   const existing = clients.find((c) => c.name.trim().toLowerCase() === key);
   const fields = {
     name,
-    address: inv.clientAddress.trim(),
-    trn: inv.clientTrn.trim(),
-    ...(inv.invoiceNo.trim() ? { last_invoice_no: inv.invoiceNo.trim() } : {}),
-    ...(inv.project.trim() ? { last_project: inv.project.trim() } : {}),
+    ...(f.address !== undefined ? { address: f.address.trim() } : {}),
+    ...(f.trn !== undefined ? { trn: f.trn.trim() } : {}),
+    ...(f.invoiceNo?.trim() ? { last_invoice_no: f.invoiceNo.trim() } : {}),
+    ...(f.proformaNo?.trim() ? { last_proforma_no: f.proformaNo.trim() } : {}),
+    ...(f.project?.trim() ? { last_project: f.project.trim() } : {}),
+    ...(f.docDefaults ? { doc_defaults: { ...(existing?.doc_defaults ?? {}), ...f.docDefaults } } : {}),
     updated_at: new Date().toISOString(),
   };
   const hasLabel = (c: BillingClient) => c.entry_clients.some((e) => e.trim().toLowerCase() === label.toLowerCase());
@@ -145,42 +75,69 @@ async function rememberClient(inv: InvoiceDoc, entryClient: string, clients: Bil
 
 /** What the Finalized list was narrowed by — shown above the preview so the
  *  admin can confirm which entries the invoice is built from. */
-export type InvoiceScope = { period: string; conditions: number; view?: string; search?: string };
+export type InvoiceScope = {
+  period: string; conditions: number; view?: string; search?: string;
+  /** Printed PERIOD when a date range is selected (otherwise derived from the entries). */
+  invoicePeriod?: string;
+};
 
-export function InvoiceModal({ rows, scope, onClose, flash }: {
+type DocType = "standard" | "proforma" | "summary";
+const DOC_TYPES: { key: DocType; label: string; hint: string }[] = [
+  { key: "standard", label: "Invoice", hint: "Standard tax invoice with material lines" },
+  { key: "proforma", label: "Proforma", hint: "Progress per tower / level — submit for approval first" },
+  { key: "summary", label: "Tax invoice (summary)", hint: "One-page tax invoice raised after the proforma is approved" },
+];
+
+export function InvoiceModal({ rows, history, periodStart, scope, onClose, flash }: {
   rows: WorkEntry[];
+  /** Every finalized entry — the proforma's "Previous" quantities come from here. */
+  history: WorkEntry[];
+  /** First day of the selected period (YYYY-MM-DD); null = no cut-off. */
+  periodStart: string | null;
   scope?: InvoiceScope;
   onClose: () => void;
   flash: (m: string, k?: ToastKind) => void;
 }) {
-  // Work-entry clients in this view, most entries first.
+  // Work-entry clients in this view, most entries first (same name however spaced/cased).
   const entryClients = useMemo(() => {
-    const counts = new Map<string, number>();
+    const counts = new Map<string, { label: string; n: number }>();
     for (const r of rows) {
-      const c = (r.client ?? "").toString().trim() || "No client";
-      counts.set(c, (counts.get(c) ?? 0) + 1);
+      const label = (r.client ?? "").toString().trim() || "No client";
+      const k = clientKey(label);
+      const c = counts.get(k);
+      if (c) c.n++; else counts.set(k, { label, n: 1 });
     }
-    return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([c]) => c);
+    return [...counts.values()].sort((a, b) => b.n - a.n).map((c) => c.label);
   }, [rows]);
 
   const [entryClient, setEntryClient] = useState(entryClients[0] ?? "");
   const [clients, setClients] = useState<BillingClient[]>([]);
+  const [saved, setSaved] = useState<SavedItem[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [docType, setDocType] = useState<DocType>(isChinaRailway(entryClients[0] ?? "") ? "proforma" : "standard");
   const [inv, setInv] = useState<InvoiceDoc | null>(null);
+  const [proforma, setProforma] = useState<ProformaDoc | null>(null);
+  const [summary, setSummary] = useState<SummaryDoc | null>(null);
+  const [countKey, setCountKey] = useState("");
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    supabase.from(TABLE).select("*").order("name").then(({ data, error }) => {
-      if (error) flash("Couldn't load saved clients — you can still type them in", "error");
-      setClients((data as BillingClient[]) ?? []);
+    Promise.all([
+      supabase.from(TABLE).select("*").order("name"),
+      supabase.from(ITEMS).select("section,item,uom,contract_qty,rate").eq("client_label", clientKey(entryClient)),
+    ]).then(([c, it]) => {
+      if (c.error) flash("Couldn't load saved clients — you can still type them in", "error");
+      if (it.error) flash("Couldn't load saved contract quantities — you can still type them in", "error");
+      setClients((c.data as BillingClient[]) ?? []);
+      setSaved((it.data as SavedItem[]) ?? []);
       setLoaded(true);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [entryClient]);
 
   const clientRows = useMemo(
-    () => rows.filter((r) => ((r.client ?? "").toString().trim() || "No client") === entryClient),
+    () => rows.filter((r) => clientKey((r.client ?? "").toString().trim() || "No client") === clientKey(entryClient)),
     [rows, entryClient],
   );
   const basis = [
@@ -192,10 +149,35 @@ export function InvoiceModal({ rows, scope, onClose, flash }: {
     scope?.search ? `search “${scope.search}”` : "",
   ].filter(Boolean).join(" · ");
 
-  // (Re)build the invoice whenever the chosen work-entry client changes.
+  const billing = matchBillingClient(entryClient, clients);
+  const countOptions = useMemo(() => usedCountFields(clientRows), [clientRows]);
+
+  function makeProforma(key: string): ProformaDoc {
+    const progressRows = buildProgressRows({
+      rows: clientRows, history, client: entryClient, periodStart, countKey: key, saved,
+      defaultRate: typicalRate(clientRows, key),
+    });
+    const desc = clientRows.map((r) => (r.description ?? "").toString().trim()).find(Boolean) ?? "";
+    return buildProforma({
+      rows: progressRows,
+      billing: billing && {
+        name: billing.name, address: billing.address, trn: billing.trn, last_project: billing.last_project,
+        last_proforma_no: billing.last_proforma_no ?? "", doc_defaults: billing.doc_defaults ?? {},
+      },
+      entryClient, defaultScope: desc, nextNo: nextInvoiceNo,
+    });
+  }
+
+  // (Re)build every document whenever the chosen work-entry client changes.
   useEffect(() => {
     if (!loaded) return;
-    setInv(buildInvoice(clientRows, entryClient, matchBillingClient(entryClient, clients)));
+    const built = buildInvoice(clientRows, entryClient, billing);
+    if (scope?.invoicePeriod) built.period = scope.invoicePeriod;
+    setInv(built);
+    const key = pickCountField(clientRows);
+    setCountKey(key);
+    setProforma(makeProforma(key));
+    setSummary(null);
     setDirty(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded, entryClient]);
@@ -224,8 +206,43 @@ export function InvoiceModal({ rows, scope, onClose, flash }: {
   };
   const setLine = (id: string, field: keyof Omit<InvoiceLine, "id">, value: string) =>
     set("lines", inv!.lines.map((l) => (l.id === id ? editLine(l, field, value) : l)));
+  const setP = <K extends keyof ProformaDoc>(k: K, v: ProformaDoc[K]) => {
+    setProforma((d) => (d ? { ...d, [k]: v } : d));
+    setDirty(true);
+  };
+  const setS = <K extends keyof SummaryDoc>(k: K, v: SummaryDoc[K]) => {
+    setSummary((d) => (d ? { ...d, [k]: v } : d));
+    setDirty(true);
+  };
+
+  function switchType(next: DocType) {
+    // The summary is built from the proforma the first time it's opened, so
+    // it carries the same client, project, scope and sub total.
+    if (next === "summary" && !summary && proforma) {
+      setSummary(buildSummary(proforma, {
+        billing: billing && { last_invoice_no: billing.last_invoice_no, doc_defaults: billing.doc_defaults ?? {} },
+        nextNo: nextInvoiceNo,
+      }));
+    }
+    setDocType(next);
+  }
+
+  function changeCountField(key: string) {
+    if (dirty && !confirm("Changing the quantity source rebuilds the proforma rows and drops your edits there. Continue?")) return;
+    setCountKey(key);
+    setProforma(makeProforma(key));
+  }
 
   function pickClient(c: BillingClient) {
+    if (docType === "proforma") {
+      setProforma((d) => d && {
+        ...d, clientName: c.name, clientAddress: c.address, clientTrn: c.trn,
+        invoiceNo: d.invoiceNo.trim() ? d.invoiceNo : nextInvoiceNo(c.last_proforma_no ?? ""),
+        project: d.project.trim() ? d.project : c.last_project,
+      });
+      setDirty(true);
+      return;
+    }
     setInv((d) => d && {
       ...d,
       clientName: c.name,
@@ -238,25 +255,56 @@ export function InvoiceModal({ rows, scope, onClose, flash }: {
   }
 
   async function download() {
-    if (!inv) return;
-    if (!inv.clientName.trim()) return flash("Add the client name before downloading", "error");
+    const name = docType === "standard" ? inv?.clientName : docType === "proforma" ? proforma?.clientName : summary?.toName;
+    if (!name?.trim()) return flash("Add the client name before downloading", "error");
     setBusy(true);
     try {
-      const [{ renderInvoicePdf }, logo, stamp] = await Promise.all([
-        import("../lib/invoicePdf"), toDataUrl(logoUrl), toDataUrl(stampUrl),
-      ]);
-      const name = `Invoice_${inv.invoiceNo.trim() || inv.clientName.trim()}_${inv.invoiceDate}`
-        .replace(/[^\w.-]+/g, "_").replace(/_+/g, "_").slice(0, 100);
-      renderInvoicePdf(inv, { logo, stamp }).save(`${name}.pdf`);
+      const [logo, stamp] = await Promise.all([toDataUrl(logoUrl), toDataUrl(stampUrl)]);
+      if (docType === "standard" && inv) {
+        const { renderInvoicePdf } = await import("../lib/invoicePdf");
+        renderInvoicePdf(inv, { logo, stamp }).save(`${fileName("Invoice", inv.invoiceNo, inv.clientName, inv.invoiceDate)}.pdf`);
+      } else if (docType === "proforma" && proforma) {
+        const { renderProformaPdf } = await import("../lib/progressPdf");
+        renderProformaPdf(proforma, { logo, stamp }).save(`${fileName("Proforma", proforma.invoiceNo, proforma.clientName, proforma.invoiceDate)}.pdf`);
+      } else if (docType === "summary" && summary) {
+        const { renderSummaryPdf } = await import("../lib/progressPdf");
+        renderSummaryPdf(summary, { logo, stamp }).save(`${fileName("TaxInvoice", summary.invoiceNo, summary.toName, summary.invoiceDate)}.pdf`);
+      }
     } catch (e: any) {
       setBusy(false);
       return flash(`Couldn't create the PDF: ${e?.message ?? e}`, "error");
     }
     try {
-      await rememberClient(inv, entryClient, clients);
-      flash("Invoice downloaded", "success");
+      if (docType === "standard" && inv) {
+        await rememberClient({
+          name: inv.clientName, address: inv.clientAddress, trn: inv.clientTrn,
+          invoiceNo: inv.invoiceNo, project: inv.project,
+        }, entryClient, clients);
+      } else if (docType === "proforma" && proforma) {
+        await rememberClient({
+          name: proforma.clientName, address: proforma.clientAddress, trn: proforma.clientTrn,
+          proformaNo: proforma.invoiceNo, project: proforma.project,
+          docDefaults: { scope: proforma.scope, retention: proforma.retentionRate },
+        }, entryClient, clients);
+        const items = proforma.rows
+          .filter((r) => normLabel(r.section) && normLabel(r.item))
+          .map((r) => ({
+            client_label: clientKey(entryClient), section: normLabel(r.section), item: normLabel(r.item),
+            uom: r.uom.trim(), contract_qty: parseNum(r.contractQty), rate: parseNum(r.rate),
+          }));
+        if (items.length) {
+          const { error } = await supabase.from(ITEMS).upsert(items, { onConflict: "client_label,section,item" });
+          if (error) throw error;
+        }
+      } else if (docType === "summary" && summary) {
+        await rememberClient({
+          name: summary.toName, invoiceNo: summary.invoiceNo,
+          docDefaults: { subject: summary.subject, reference: summary.reference, retention: summary.retentionRate },
+        }, entryClient, clients);
+      }
+      flash(docType === "proforma" ? "Proforma downloaded" : "Invoice downloaded", "success");
     } catch {
-      flash("Invoice downloaded, but the client details couldn't be saved", "error");
+      flash("Downloaded, but the details for next time couldn't be saved", "error");
     }
     setBusy(false);
     setDirty(false);
@@ -264,6 +312,7 @@ export function InvoiceModal({ rows, scope, onClose, flash }: {
 
   const t = inv ? totals(inv) : null;
   const cell = "border border-black px-2 py-1.5 align-middle";
+  const countLabel = (key: string) => COUNT_FIELDS.find((f) => f.key === key)?.label ?? "—";
 
   return (
     <div className="fixed inset-0 z-40 bg-black/50 flex items-stretch justify-center p-3 md:p-6" onClick={requestClose}>
@@ -283,6 +332,7 @@ export function InvoiceModal({ rows, scope, onClose, flash }: {
               <select value={entryClient}
                 onChange={(e) => {
                   if (dirty && !confirm("Switching client rebuilds the invoice and drops your edits. Continue?")) return;
+                  setLoaded(false);
                   setEntryClient(e.target.value);
                 }}
                 className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm max-w-[260px]">
@@ -297,12 +347,50 @@ export function InvoiceModal({ rows, scope, onClose, flash }: {
               {busy ? "Preparing…" : "Download PDF"}
             </button>
           </div>
+          {/* Document type + (proforma) quantity source */}
+          <div className="w-full flex flex-wrap items-center gap-3">
+            <div className="inline-flex rounded-full border border-slate-200 bg-slate-50 p-0.5" role="tablist" aria-label="Document type">
+              {DOC_TYPES.map((d) => (
+                <button key={d.key} type="button" role="tab" aria-selected={docType === d.key} title={d.hint}
+                  onClick={() => switchType(d.key)}
+                  className={`text-xs font-semibold px-3 py-1.5 rounded-full transition ${
+                    docType === d.key ? "bg-brand-ink text-white shadow-sm" : "text-slate-600 hover:text-brand-ink"}`}>
+                  {d.label}
+                </button>
+              ))}
+            </div>
+            {docType === "proforma" && (
+              <label className="flex items-center gap-2 text-xs text-slate-600">
+                Quantity from
+                <select value={countKey} onChange={(e) => changeCountField(e.target.value)}
+                  className="border border-slate-300 rounded-lg px-2 py-1 text-sm">
+                  {!countOptions.some((f) => f.key === countKey) && <option value={countKey}>{countLabel(countKey)}</option>}
+                  {countOptions.map((f) => <option key={f.key as string} value={f.key as string}>{f.label}</option>)}
+                </select>
+              </label>
+            )}
+            {docType === "proforma" && (
+              <span className="text-[11px] text-slate-500">
+                Previous = earlier entries {periodStart ? `before ${periodStart.split("-").reverse().join("/")}` : "(none — no period start)"} · amber boxes need the contract qty (remembered)
+              </span>
+            )}
+            {docType === "summary" && proforma && (
+              <span className="text-[11px] text-slate-500">
+                Raise after the proforma is approved — type the approved amount in “Total Amount of Work Done”.
+              </span>
+            )}
+          </div>
         </div>
 
         {/* A4 sheet */}
         <div className="flex-1 overflow-auto p-4 md:p-6">
           {!inv || !t ? (
             <div className="text-center text-slate-500 py-20">Preparing invoice…</div>
+          ) : docType === "proforma" && proforma ? (
+            <ProformaSheet doc={proforma} set={setP} clients={clients} onPickClient={pickClient} logoUrl={logoUrl} stampUrl={stampUrl} />
+          ) : docType === "summary" && summary ? (
+            <SummarySheet doc={summary} set={setS} logoUrl={logoUrl} stampUrl={stampUrl}
+              proformaSubtotal={proforma ? proformaTotals(proforma).subtotal : null} />
           ) : (
             <div className="mx-auto bg-white shadow-lg w-[794px] max-w-full p-[34px] text-black text-[12px]" style={{ fontFamily: "Helvetica, Arial, sans-serif" }}>
               {/* Header */}

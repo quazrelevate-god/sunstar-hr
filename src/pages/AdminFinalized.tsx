@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { supabase, LIGHT_FIELDS } from "../lib/supabase";
 import type { WorkEntry, SavedFilter, Condition, FilterCol } from "../lib/supabase";
 import { passesConditions, rateTone, rateToneClasses } from "../lib/rate";
+import { clientKey } from "../lib/progress";
 import { todayDubai } from "../lib/data";
 import { AddConditionPopover, FilterChip } from "../components/FilterBuilder";
 // Lazy: recharts (~150 kB) only downloads when the insights column is shown.
@@ -100,6 +101,10 @@ function currentPeriod(): { y: number; m: number } {
   const t = todayDubai();
   return { y: Number(t.slice(0, 4)), m: Number(t.slice(5, 7)) };
 }
+/** The date an entry belongs to (YYYY-MM-DD): End date, else Start date. */
+const entryDate = (r: WorkEntry) => (r.end_date || r.start_date || "").toString().slice(0, 10);
+/** "2026-11-05" → "05/11/2026" */
+const dmy = (iso: string) => iso.split("-").reverse().join("/");
 /** Year and month (1–12) an entry belongs to: End date, else Start date. */
 function periodDate(r: WorkEntry): { y: number; m: number } | null {
   const s = (r.end_date || r.start_date || "").toString();
@@ -268,13 +273,16 @@ export default function AdminFinalized({ finalized, allRows }: { finalized: Work
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [suggestHi, setSuggestHi] = useState(-1);
 
-  // Universal Month / Year filter. Applied before everything else, so the
-  // metrics, insights, table, search and exports all see only that period;
-  // conditions and saved views stack on top. Not saved with views — it opens
-  // on the current Dubai month every time, and follows the calendar into the
-  // next month if the page is left open, until the admin picks a period
-  // themselves. The entry's End date decides the month (Start date if End
-  // is missing).
+  // Universal period filter: Month / Year, or a From–To date range. Applied
+  // before everything else, so the metrics, insights, table, search, exports
+  // and invoice all see only that period; conditions and saved views stack on
+  // top. Not saved with views — it opens on the current Dubai month every
+  // time, and follows the calendar into the next month if the page is left
+  // open, until the admin picks a period themselves. The entry's End date
+  // decides where it falls (Start date if End is missing).
+  const [periodMode, setPeriodMode] = useState<"month" | "range">("month");
+  const [rangeFrom, setRangeFrom] = useState(() => `${todayDubai().slice(0, 8)}01`);
+  const [rangeTo, setRangeTo] = useState(() => todayDubai());
   const [month, setMonth] = useState<number | null>(() => currentPeriod().m);   // 1–12
   const [year, setYear] = useState<number | null>(() => currentPeriod().y);
   const periodPicked = useRef(false);
@@ -288,23 +296,42 @@ export default function AdminFinalized({ finalized, allRows }: { finalized: Work
     return () => clearInterval(id);
   }, []);
   const now = currentPeriod();
-  const onCurrentPeriod = month === now.m && year === now.y;
+  const onCurrentPeriod = periodMode === "month" && month === now.m && year === now.y;
+  // Range ends in order even if typed backwards.
+  const [rangeA, rangeB] = rangeFrom && rangeTo && rangeFrom > rangeTo ? [rangeTo, rangeFrom] : [rangeFrom, rangeTo];
   const periodRows = useMemo(() => {
+    if (periodMode === "range") {
+      return finalized.filter((r) => {
+        const d = entryDate(r);
+        return !!d && (!rangeA || d >= rangeA) && (!rangeB || d <= rangeB);
+      });
+    }
     if (month == null && year == null) return finalized;
     return finalized.filter((r) => {
       const d = periodDate(r);
       if (!d) return false;
       return (year == null || d.y === year) && (month == null || d.m === month);
     });
-  }, [finalized, month, year]);
+  }, [finalized, periodMode, rangeA, rangeB, month, year]);
   const yearOptions = useMemo(() => {
     const ys = new Set<number>([currentPeriod().y]);
     for (const r of finalized) { const d = periodDate(r); if (d) ys.add(d.y); }
     if (year != null) ys.add(year);
     return [...ys].sort((a, b) => b - a);
   }, [finalized, year]);
-  const periodLabel = month == null && year == null ? ""
+  const periodLabel = periodMode === "range"
+    ? (rangeA && rangeB ? (rangeA === rangeB ? dmy(rangeA) : `${dmy(rangeA)} – ${dmy(rangeB)}`)
+      : rangeA ? `from ${dmy(rangeA)}` : rangeB ? `until ${dmy(rangeB)}` : "")
+    : month == null && year == null ? ""
     : [month != null ? MONTHS[month - 1] : "", year ?? ""].filter(Boolean).join(" ");
+  /** Filename-safe version of the period. */
+  const periodTag = periodMode === "range"
+    ? [rangeA, rangeB].filter(Boolean).join("_to_")
+    : periodLabel.replace(/\s+/g, "-");
+  /** First day of the period — the proforma's "Previous" counts work before it. */
+  const periodStart: string | null = periodMode === "range" ? (rangeA || null)
+    : year == null ? null
+    : `${year}-${String(month ?? 1).padStart(2, "0")}-01`;
 
   const filteredRows = useMemo(() => {
     if (conds.length === 0) return periodRows;
@@ -450,11 +477,18 @@ export default function AdminFinalized({ finalized, allRows }: { finalized: Work
     () => (searchMatch ? rows.filter(searchMatch) : rows),
     [rows, searchMatch],
   );
+  // An invoice is for one client: the button only works when the list holds
+  // exactly one (same name however it's spaced or cased).
+  const invoiceClientCount = useMemo(
+    () => new Set(invoiceRows.map((r) => clientKey(r.client))).size,
+    [invoiceRows],
+  );
+  const invoiceReady = invoiceRows.length > 0 && invoiceClientCount === 1;
 
   // Pagination
   const pages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   const clampedPage = Math.min(page, pages - 1);
-  useEffect(() => { setPage(0); }, [conds, sortCol, sortDir, search, month, year]);
+  useEffect(() => { setPage(0); }, [conds, sortCol, sortDir, search, month, year, periodMode, rangeA, rangeB]);
   // If the row count shrinks (realtime deletes), snap the RAW page state back
   // too — otherwise Prev decrements an invisible out-of-range value and the
   // button looks dead for several clicks.
@@ -637,7 +671,7 @@ export default function AdminFinalized({ finalized, allRows }: { finalized: Work
     const view = active.kind === "saved"
       ? active.filter.name.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").slice(0, 40)
       : "";
-    const period = periodLabel.replace(/\s+/g, "-");
+    const period = periodTag;
     return `sunstar_${period ? `${period}_` : ""}${view ? `${view}_` : ""}${todayDubai()}`;
   }
   async function exportCSV() {
@@ -677,30 +711,61 @@ export default function AdminFinalized({ finalized, allRows }: { finalized: Work
           </span>
         ) : null}
       >
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <span className="text-[11px] uppercase tracking-wider font-semibold text-slate-500">Period</span>
-          <select
-            aria-label="Month"
-            value={month ?? ""}
-            onChange={(e) => { periodPicked.current = true; setMonth(e.target.value ? Number(e.target.value) : null); }}
-            className={`border rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-blue/40 ${month != null ? "border-brand-blue text-brand-blueDark font-semibold" : "border-slate-200"}`}
-          >
-            <option value="">All months</option>
-            {MONTHS.map((name, i) => <option key={name} value={i + 1}>{name}</option>)}
-          </select>
-          <select
-            aria-label="Year"
-            value={year ?? ""}
-            onChange={(e) => { periodPicked.current = true; setYear(e.target.value ? Number(e.target.value) : null); }}
-            className={`border rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-blue/40 ${year != null ? "border-brand-blue text-brand-blueDark font-semibold" : "border-slate-200"}`}
-          >
-            <option value="">All years</option>
-            {yearOptions.map((y) => <option key={y} value={y}>{y}</option>)}
-          </select>
+          <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5" role="tablist" aria-label="Period type">
+            {([["month", "Month"], ["range", "Dates"]] as const).map(([k, label]) => (
+              <button key={k} type="button" role="tab" aria-selected={periodMode === k}
+                onClick={() => { periodPicked.current = true; setPeriodMode(k); }}
+                className={`text-xs font-semibold px-2.5 py-1 rounded-md transition ${
+                  periodMode === k ? "bg-white shadow-sm text-brand-blueDark" : "text-slate-500 hover:text-brand-ink"}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+          {periodMode === "month" ? (
+            <>
+              <select
+                aria-label="Month"
+                value={month ?? ""}
+                onChange={(e) => { periodPicked.current = true; setMonth(e.target.value ? Number(e.target.value) : null); }}
+                className={`border rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-blue/40 ${month != null ? "border-brand-blue text-brand-blueDark font-semibold" : "border-slate-200"}`}
+              >
+                <option value="">All months</option>
+                {MONTHS.map((name, i) => <option key={name} value={i + 1}>{name}</option>)}
+              </select>
+              <select
+                aria-label="Year"
+                value={year ?? ""}
+                onChange={(e) => { periodPicked.current = true; setYear(e.target.value ? Number(e.target.value) : null); }}
+                className={`border rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-blue/40 ${year != null ? "border-brand-blue text-brand-blueDark font-semibold" : "border-slate-200"}`}
+              >
+                <option value="">All years</option>
+                {yearOptions.map((y) => <option key={y} value={y}>{y}</option>)}
+              </select>
+            </>
+          ) : (
+            <>
+              <input type="date" aria-label="From date" value={rangeFrom} max={rangeTo || undefined}
+                onChange={(e) => { periodPicked.current = true; setRangeFrom(e.target.value); }}
+                className="border border-brand-blue rounded-lg px-2 py-1 text-sm bg-white text-brand-blueDark font-semibold focus:outline-none focus:ring-2 focus:ring-brand-blue/40" />
+              <span className="text-xs text-slate-500">to</span>
+              <input type="date" aria-label="To date" value={rangeTo} min={rangeFrom || undefined}
+                onChange={(e) => { periodPicked.current = true; setRangeTo(e.target.value); }}
+                className="border border-brand-blue rounded-lg px-2 py-1 text-sm bg-white text-brand-blueDark font-semibold focus:outline-none focus:ring-2 focus:ring-brand-blue/40" />
+              <button
+                type="button"
+                onClick={() => { const t = todayDubai(); setRangeFrom(t); setRangeTo(t); }}
+                className="text-xs text-gray-500 hover:text-brand-ink hover:underline"
+              >
+                Today
+              </button>
+            </>
+          )}
           {!onCurrentPeriod && (
             <button
               type="button"
-              onClick={() => { periodPicked.current = false; setMonth(now.m); setYear(now.y); }}
+              onClick={() => { periodPicked.current = false; setPeriodMode("month"); setMonth(now.m); setYear(now.y); }}
               className="text-xs text-gray-500 hover:text-brand-ink hover:underline"
             >
               This month
@@ -932,11 +997,19 @@ export default function AdminFinalized({ finalized, allRows }: { finalized: Work
                   CSV
                 </button>
                 {INVOICING_ENABLED && (
-                  <button onClick={() => setInvoiceOpen(true)} disabled={invoiceRows.length === 0}
-                    title="Preview, edit and download an invoice for the entries in this view"
-                    className="border border-brand-blue text-brand-blueDark hover:bg-brand-blue hover:text-white font-semibold px-3 py-2 rounded-lg text-sm transition disabled:opacity-40 disabled:pointer-events-none">
-                    Invoice
-                  </button>
+                  <span
+                    className="inline-flex"
+                    title={invoiceReady
+                      ? "Preview, edit and download an invoice for the entries in this list"
+                      : invoiceRows.length === 0
+                        ? "No entries in this list"
+                        : `This list has ${invoiceClientCount} clients — search or add a Client condition so only one is left`}
+                  >
+                    <button onClick={() => setInvoiceOpen(true)} disabled={!invoiceReady}
+                      className="border border-brand-blue text-brand-blueDark hover:bg-brand-blue hover:text-white font-semibold px-3 py-2 rounded-lg text-sm transition disabled:opacity-40 disabled:pointer-events-none">
+                      Invoice
+                    </button>
+                  </span>
                 )}
               </div>
             </div>
@@ -1062,8 +1135,11 @@ export default function AdminFinalized({ finalized, allRows }: { finalized: Work
       {INVOICING_ENABLED && invoiceOpen && (
         <InvoiceModal
           rows={invoiceRows}
+          history={finalized}
+          periodStart={periodStart}
           scope={{
             period: periodLabel,
+            invoicePeriod: periodMode === "range" ? periodLabel : undefined,
             conditions: conds.length,
             view: active.kind === "saved" ? active.filter.name : undefined,
             search: search || undefined,
