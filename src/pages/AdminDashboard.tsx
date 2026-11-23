@@ -5,13 +5,14 @@ import { useAuth } from "../lib/auth";
 import { fetchAll, fetchEntry } from "../lib/data";
 import AdminEmployees from "./AdminEmployees";
 import AdminFinalized from "./AdminFinalized";
+import AdminDailyRatio from "./AdminDailyRatio";
 import { StateBadge, relativeAgo } from "../components/StateBadge";
 import { Toast } from "../components/Toast";
 import type { ToastKind } from "../components/Toast";
 import { Logo } from "../components/Logo";
 import { FullEditModal } from "../components/FullEditModal";
 
-type Tab = "queue" | "finalized" | "employees";
+type Tab = "queue" | "finalized" | "daily" | "employees";
 type QFilter = "ALL" | EntryState;
 
 export default function AdminDashboard() {
@@ -141,7 +142,7 @@ export default function AdminDashboard() {
 
         <div className="max-w-screen-2xl 2xl:max-w-none mx-auto px-6">
           <nav className="flex gap-1">
-            {(["queue", "finalized", "employees"] as Tab[]).map((t) => (
+            {(["queue", "finalized", "daily", "employees"] as Tab[]).map((t) => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
@@ -153,6 +154,7 @@ export default function AdminDashboard() {
               >
                 {t === "queue" ? `Queue${queue.length ? ` (${queue.length})` : ""}`
                  : t === "finalized" ? "Finalized Entries"
+                 : t === "daily" ? "Daily Ratio"
                  : "Employees"}
               </button>
             ))}
@@ -168,6 +170,7 @@ export default function AdminDashboard() {
           <QueuePanel rows={queue} loading={loading} reload={load} flash={flash} />
         )}
         {tab === "finalized" && <AdminFinalized finalized={finalized} allRows={rows} />}
+        {tab === "daily" && <AdminDailyRatio finalized={finalized} allRows={rows} />}
       </main>
     </div>
   );
