@@ -2,11 +2,14 @@ import { useMemo, useState } from "react";
 import type { WorkEntry } from "../lib/supabase";
 import { todayDubai } from "../lib/data";
 import { clientKey } from "../lib/progress";
+import { EXPENSE_PER_HOUR, LOW_RATIO } from "../lib/rate";
 
 /*
  * Daily Ratio Summary — one row per project (the entry's client name) with
- * total hours and AED per hour for the chosen day(s), like the owner's
- * spreadsheet. Only finalized (priced) entries count: unpriced work has no
+ * total hours, AED per hour and the team leader (whoever logged the entries)
+ * for the chosen day(s), then expenses (hours × 13) and what was achieved
+ * (amount − expenses), like the owner's spreadsheet. Ratios under 15 are red;
+ * the team leader is red when the ratio is under the 13/hr cost. Only finalized (priced) entries count: unpriced work has no
  * ratio yet. An entry's day is its End date (Start date if End is missing),
  * the same rule as the Finalized period filter. Opens on today every time.
  */
@@ -25,8 +28,10 @@ function addDays(day: string, n: number): string {
   return iso(new Date(Date.UTC(y, m - 1, d + n)));
 }
 const lastOfMonth = (y: number, m: number) => iso(new Date(Date.UTC(y, m, 0)));
-/** 15.5, 18, 15.07 — up to two decimals, no padding (as on the summary sheet). */
-const num = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: 2 });
+/** 800, 14.7, 18 — trimmed decimals, as on the summary sheet. */
+const num = (n: number, digits = 2) => n.toLocaleString("en-US", { maximumFractionDigits: digits });
+/** 12,945.60 — money with two decimals. */
+const money = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export default function AdminDailyRatio({ finalized, allRows }: { finalized: WorkEntry[]; allRows: WorkEntry[] }) {
   const today = todayDubai();
@@ -54,20 +59,25 @@ export default function AdminDailyRatio({ finalized, allRows }: { finalized: Wor
   const inRange = (r: WorkEntry) => { const d = entryDate(r); return !!d && d >= lo && d <= hi; };
 
   const summary = useMemo(() => {
-    const byProject = new Map<string, { project: string; hours: number; amount: number }>();
+    const byProject = new Map<string, { project: string; hours: number; amount: number; leaders: Set<string> }>();
     for (const r of finalized) {
       if (!inRange(r)) continue;
       const label = (r.client ?? "").toString().trim().replace(/\s+/g, " ") || "No client";
       const k = clientKey(label);
-      const p = byProject.get(k) ?? { project: label, hours: 0, amount: 0 };
+      const p = byProject.get(k) ?? { project: label, hours: 0, amount: 0, leaders: new Set<string>() };
       p.hours += Number(r.hours ?? 0) || 0;
       p.amount += Number(r.total_price ?? 0) || 0;
+      const who = (r.employee_name ?? "").toString().trim().replace(/\s+/g, " ").toUpperCase();
+      if (who) p.leaders.add(who);
       byProject.set(k, p);
     }
-    const list = [...byProject.values()].sort((a, b) => a.project.localeCompare(b.project, undefined, { sensitivity: "base", numeric: true }));
+    const list = [...byProject.values()]
+      .map((p) => ({ ...p, ratio: p.hours > 0 ? p.amount / p.hours : 0, leader: [...p.leaders].sort().join(" / ") }))
+      .sort((a, b) => a.project.localeCompare(b.project, undefined, { sensitivity: "base", numeric: true }));
     const hours = list.reduce((s, p) => s + p.hours, 0);
     const amount = list.reduce((s, p) => s + p.amount, 0);
-    return { list, hours, amount, ratio: hours > 0 ? amount / hours : 0 };
+    const expenses = hours * EXPENSE_PER_HOUR;
+    return { list, hours, amount, ratio: hours > 0 ? amount / hours : 0, expenses, achieve: amount - expenses };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [finalized, lo, hi]);
 
@@ -87,7 +97,7 @@ export default function AdminDailyRatio({ finalized, allRows }: { finalized: Wor
   const cell = "border border-slate-300 px-3 py-2";
 
   return (
-    <div className="max-w-3xl mx-auto space-y-4">
+    <div className="max-w-4xl mx-auto space-y-4">
       {/* Filters — today by default */}
       <div className="bg-white rounded-2xl shadow-sm px-4 py-3 flex flex-wrap items-center gap-3">
         <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
@@ -122,43 +132,64 @@ export default function AdminDailyRatio({ finalized, allRows }: { finalized: Wor
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr>
-              <th colSpan={4} className="border border-slate-300 bg-amber-400 text-brand-ink text-2xl font-semibold tracking-wide py-2">
+              <th colSpan={5} className="border border-slate-300 bg-amber-400 text-brand-ink text-2xl font-semibold tracking-wide py-2">
                 DAILY RATIO SUMMARY
               </th>
             </tr>
             <tr>
-              <th colSpan={4} className="border border-slate-300 bg-amber-50 text-brand-ink text-sm font-semibold py-1.5">{label}</th>
+              <th colSpan={5} className="border border-slate-300 bg-amber-50 text-brand-ink text-sm font-semibold py-1.5">{label}</th>
             </tr>
-            <tr className="bg-slate-50 text-left">
-              <th className={`${cell} w-20`}>SR.NO</th>
-              <th className={cell}>Project</th>
-              <th className={`${cell} w-32 text-center`}>Total Hrs</th>
-              <th className={`${cell} w-32 text-center`}>Ratio</th>
+            <tr className="bg-slate-50">
+              <th className={`${cell} w-16 text-center`}>SR.NO</th>
+              <th className={`${cell} text-center`}>Project</th>
+              <th className={`${cell} w-24 text-center`}>Total Hrs</th>
+              <th className={`${cell} w-20 text-center`}>Ratio</th>
+              <th className={`${cell} w-44 text-center`}>TEAM LEADER</th>
             </tr>
           </thead>
           <tbody>
             {summary.list.length === 0 ? (
               <tr>
-                <td colSpan={4} className={`${cell} text-center text-slate-400 py-10`}>
+                <td colSpan={5} className={`${cell} text-center text-slate-400 py-10`}>
                   No priced entries for {label}.
                   <div className="text-xs mt-1">Entries show here once they're finalized (priced) in the Queue.</div>
                 </td>
               </tr>
-            ) : summary.list.map((p, i) => (
-              <tr key={p.project}>
-                <td className={`${cell} text-center`}>{i + 1}</td>
-                <td className={`${cell} uppercase`}>{p.project}</td>
-                <td className={`${cell} text-center tabular-nums`}>{num(p.hours)}</td>
-                <td className={`${cell} text-center tabular-nums bg-sky-100 font-semibold`}>
-                  {p.hours > 0 ? num(p.amount / p.hours) : "—"}
-                </td>
+            ) : summary.list.map((p, i) => {
+              const low = p.ratio < LOW_RATIO, loss = p.ratio < EXPENSE_PER_HOUR;
+              return (
+                <tr key={p.project}>
+                  <td className={`${cell} text-center`}>{i + 1}</td>
+                  <td className={`${cell} uppercase`}>{p.project}</td>
+                  <td className={`${cell} text-center tabular-nums`}>{num(p.hours)}</td>
+                  <td className={`${cell} text-center tabular-nums bg-sky-100 font-bold ${low ? "text-red-600" : "text-brand-ink"}`}
+                    title={low ? `Below ${LOW_RATIO} AED/hr` : undefined}>
+                    {num(p.ratio, 1)}
+                  </td>
+                  <td className={`${cell} text-xs uppercase ${loss ? "text-red-600 font-semibold" : ""}`}
+                    title={loss ? `Ratio is below the ${EXPENSE_PER_HOUR} AED/hr cost` : undefined}>
+                    {p.leader || "—"}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot>
+            {([
+              ["TOTAL AMOUNT", money(summary.amount), ""],
+              ["TOTAL HOURS", num(summary.hours), ""],
+              ["RATIO", summary.hours > 0 ? money(summary.ratio) : "—", "text-brand-blueDark"],
+              ["PER HOUR EXPENSES", money(EXPENSE_PER_HOUR), "text-xs"],
+              [lo === hi ? "PER DAY EXPENSES" : "TOTAL EXPENSES", money(summary.expenses), "text-xs"],
+              [lo === hi ? "PER DAY ACHIEVE" : "TOTAL ACHIEVE", money(summary.achieve),
+                `text-xs font-bold ${summary.achieve < 0 ? "text-red-600" : "text-emerald-700"}`],
+            ] as const).map(([name, value, cls]) => (
+              <tr key={name}>
+                <td colSpan={2} className={`${cell} text-right ${cls.includes("text-xs") ? "text-xs" : "font-semibold"}`}>{name}</td>
+                <td colSpan={2} className={`${cell} text-center tabular-nums font-semibold ${cls}`}>{value}</td>
+                <td className={cell} />
               </tr>
             ))}
-          </tbody>
-          <tfoot className="font-semibold">
-            <tr><td colSpan={2} className={`${cell} text-right`}>TOTAL AMOUNT</td><td colSpan={2} className={`${cell} text-center tabular-nums`}>{num(summary.amount)}</td></tr>
-            <tr><td colSpan={2} className={`${cell} text-right`}>TOTAL HOURS</td><td colSpan={2} className={`${cell} text-center tabular-nums`}>{num(summary.hours)}</td></tr>
-            <tr><td colSpan={2} className={`${cell} text-right`}>RATIO</td><td colSpan={2} className={`${cell} text-center tabular-nums text-brand-blueDark`}>{summary.hours > 0 ? num(summary.ratio) : "—"}</td></tr>
           </tfoot>
         </table>
         {pending > 0 && (

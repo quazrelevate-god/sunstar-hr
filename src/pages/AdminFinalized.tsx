@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { supabase, LIGHT_FIELDS } from "../lib/supabase";
 import type { WorkEntry, SavedFilter, Condition, FilterCol } from "../lib/supabase";
-import { passesConditions, rateTone, rateToneClasses } from "../lib/rate";
+import { passesConditions, rateTone, rateToneClasses, EXPENSE_PER_HOUR } from "../lib/rate";
 import { clientKey } from "../lib/progress";
 import { todayDubai } from "../lib/data";
 import { AddConditionPopover, FilterChip } from "../components/FilterBuilder";
@@ -20,8 +20,6 @@ import { InvoiceModal } from "../components/InvoiceModal";
 const INVOICING_ENABLED = true as boolean;
 
 const PAGE_SIZE = 50;
-/** Rough company cost per worked hour (owner's figure, 2026-11-23). */
-const EXPENSE_PER_HOUR = 13;
 const TEXT_COLS: FilterCol[] = [
   "cluster","phase","villa","bedroom_type","floor_type","description","client","status","apartment_number",
 ];
@@ -1242,16 +1240,17 @@ function MetricCards({ m, scope, children }: {
       <MetricInline label="Entries" value={m.count.toLocaleString()} />
       <div className="flex items-baseline gap-3 min-w-0">
         <MetricInline label="Total Hours" value={Math.round(m.hours).toLocaleString()} />
-        {/* Rough cost from the company's history: hours × AED 13. Deliberately
+        {/* Rough profit from the company's history: revenue − hours × AED 13
+            (the same "achieve" figure as the daily summary). Deliberately
             muted and "locked" — a guide, not an exact figure. */}
         <span
-          title={`Rough expense = total hours × AED ${EXPENSE_PER_HOUR} (company average). A guide, not an exact figure.`}
+          title={`Rough profit = revenue − total hours × AED ${EXPENSE_PER_HOUR} (expense ≈ AED ${Math.round(m.hours * EXPENSE_PER_HOUR).toLocaleString()}). A guide, not an exact figure.`}
           className="inline-flex items-center gap-1 rounded-md bg-slate-100 border border-slate-200 px-2 py-0.5 text-xs text-slate-500 tabular-nums select-none cursor-default"
         >
           <svg viewBox="0 0 16 16" className="w-3 h-3" fill="currentColor" aria-hidden="true">
             <path d="M4.5 7V5a3.5 3.5 0 1 1 7 0v2h.5A1 1 0 0 1 13 8v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1h.5Zm1.5 0h4V5a2 2 0 1 0-4 0v2Z" />
           </svg>
-          ≈ Expense AED {Math.round(m.hours * EXPENSE_PER_HOUR).toLocaleString()}
+          ≈ Profit AED {Math.round(m.revenue - m.hours * EXPENSE_PER_HOUR).toLocaleString()}
         </span>
       </div>
       <MetricInline label="Revenue" value={`AED ${m.revenue.toLocaleString()}`} accent />

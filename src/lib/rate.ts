@@ -115,3 +115,8 @@ export function passesConditions(row: any, conds: Condition[]): boolean {
   }
   return true;
 }
+
+/** Rough company cost per worked hour (owner's figure, 2026-11-23). */
+export const EXPENSE_PER_HOUR = 13;
+/** AED/hr below this is flagged red on the Daily Ratio summary (owner's sheet). */
+export const LOW_RATIO = 15;
