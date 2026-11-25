@@ -581,12 +581,9 @@ function NewEntryTab({
 
   async function submit() {
     if (submitting.current) return;
+    // Only Villa and Check-in are required (owner, 2026-11-25): Client,
+    // Description and Total Manpower may be left blank.
     if (!form.villa?.trim()) return flash("Villa is required", "error");
-    if (!form.client?.trim()) return flash("Client is required", "error");
-    if (!form.description?.trim()) return flash("Description is required", "error");
-    if (!form.total_manpower || form.total_manpower <= 0 || !Number.isInteger(form.total_manpower)) {
-      return flash("Total manpower must be a whole number above 0", "error");
-    }
     if (!form.check_in_time) return flash("Check-in time is required", "error");
     const warn = timeWarnings(form);
     if (warn.length && !confirm(`${warn.join(". ")}.\n\nIs this correct (for example a night shift)?`)) return;
@@ -604,7 +601,7 @@ function NewEntryTab({
       // Uses a server function because employees can't read FINALIZED rows
       // (prices are admin-only) — the function answers state+hours only.
       const villa = form.villa.trim();
-      const client = form.client.trim();
+      const client = (form.client ?? "").trim();
       const startDate = form.start_date || todayDubai();
       type DupRow = { id: string; state: string; hours: number | null };
       let dups: DupRow[] | null = null;
@@ -640,7 +637,7 @@ function NewEntryTab({
           `• ${stateLabel(d.state)}${d.hours != null ? ` · actual ${d.hours}h` : ""}`
         ).join("\n");
         const okDup = confirm(
-          `Villa ${villa} for "${client}" on ${startDate} already exists (${dups.length}):\n\n${lines}\n\nCreate ANOTHER entry anyway?`
+          `Villa ${villa}${client ? ` for "${client}"` : ""} on ${startDate} already exists (${dups.length}):\n\n${lines}\n\nCreate ANOTHER entry anyway?`
         );
         if (!okDup) return;
       }
@@ -651,13 +648,13 @@ function NewEntryTab({
         phase: (form.phase ?? "").trim(),
         villa,
         bedroom_type: (form.bedroom_type ?? "").trim(),
-        description: form.description.trim(),
+        description: (form.description ?? "").trim(),
         floor_type: (form.floor_type ?? "").trim(),
         start_date: startDate,
         status: (form.status ?? "IN PROGRESS").trim() || "IN PROGRESS",
         client,
         apartment_number: form.apartment_number?.trim() ? form.apartment_number.trim() : null,
-        total_manpower: form.total_manpower,
+        total_manpower: form.total_manpower || null,
         check_in_time: form.check_in_time || null,
         check_out_time: form.check_out_time || null,
         break_start_time: form.break_start_time || null,
@@ -715,12 +712,12 @@ function NewEntryTab({
           <SuggestInput value={form.floor_type ?? ""} onChange={(v) => set("floor_type", v)}
             className={cx()} placeholder="e.g. SOG" options={suggestions.floor_type ?? []} />
         </Field>
-        <Field label="Description *">
+        <Field label="Description">
           <SuggestInput value={form.description ?? ""} onChange={(v) => set("description", v)}
             className={cx()} placeholder="e.g. Slab Conduiting" options={suggestions.description ?? []} />
         </Field>
 
-        <Field label="Client *">
+        <Field label="Client">
           <SuggestInput value={form.client ?? ""} onChange={(v) => set("client", v)}
             className={cx()} placeholder="Client / project" options={suggestions.client ?? []} />
         </Field>
@@ -737,7 +734,7 @@ function NewEntryTab({
           <SuggestInput value={form.apartment_number ?? ""} onChange={(v) => set("apartment_number", v)}
             className={cx()} placeholder="e.g. 12A (optional)" options={suggestions.apartment_number ?? []} />
         </Field>
-        <Field label="Total Manpower *">
+        <Field label="Total Manpower">
           <input
             type="text" inputMode="numeric" pattern="[0-9]*"
             value={form.total_manpower ?? ""}

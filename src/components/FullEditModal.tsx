@@ -96,8 +96,6 @@ export function FullEditModal({
 
   async function submit() {
     if (!f.villa?.trim()) return flash("Villa is required", "error");
-    if (!f.client?.trim()) return flash("Client is required", "error");
-    if (!f.description?.trim()) return flash("Description is required", "error");
     const nums: [string, unknown][] = [
       ["Actual hours", f.hours],
       ["Total manpower", f.total_manpower], ["Total price", f.total_price],
@@ -169,8 +167,8 @@ export function FullEditModal({
               <FE label="Apartment"><input value={f.apartment_number ?? ""} onChange={(e) => set("apartment_number", e.target.value)} className={cx}/></FE>
               <FE label="Bedroom"><input value={f.bedroom_type ?? ""} onChange={(e) => set("bedroom_type", e.target.value)} className={cx}/></FE>
               <FE label="Floor"><input value={f.floor_type ?? ""} onChange={(e) => set("floor_type", e.target.value)} className={cx}/></FE>
-              <FE label="Description *"><input value={f.description ?? ""} onChange={(e) => set("description", e.target.value)} className={cx}/></FE>
-              <FE label="Client *"><input value={f.client ?? ""} onChange={(e) => set("client", e.target.value)} className={cx}/></FE>
+              <FE label="Description"><input value={f.description ?? ""} onChange={(e) => set("description", e.target.value)} className={cx}/></FE>
+              <FE label="Client"><input value={f.client ?? ""} onChange={(e) => set("client", e.target.value)} className={cx}/></FE>
               <FE label="Status">
                 <select value={f.status ?? "IN PROGRESS"} onChange={(e) => set("status", e.target.value)} className={cx}>
                   {/* The entry form allows free-text statuses; keep an unknown
